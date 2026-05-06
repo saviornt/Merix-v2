@@ -3758,7 +3758,10 @@ dependencies = [
 name = "merix-agent-tools"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "merix-core",
+ "serde",
+ "uuid",
 ]
 
 [[package]]
@@ -3815,9 +3818,12 @@ dependencies = [
 name = "merix-memory"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "dashmap",
  "merix-core",
+ "serde",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

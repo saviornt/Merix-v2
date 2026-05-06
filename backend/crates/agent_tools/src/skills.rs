@@ -12,3 +12,4 @@ pub struct Skill {
     pub version: String,
     pub created_at: DateTime<Utc>,
 }
+pub fn placeholder() { unimplemented!("TODO: implement module") }

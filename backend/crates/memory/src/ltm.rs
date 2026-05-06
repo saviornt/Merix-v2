@@ -1,5 +1,4 @@
 ﻿use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,3 +9,4 @@ pub struct MemoryRecord {
     pub timestamp: DateTime<Utc>,
     pub tags: Vec<String>,
 }
+pub fn placeholder() { unimplemented!("TODO: implement module") }
