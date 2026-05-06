@@ -22,7 +22,7 @@ This checklist takes us from zero to a fully working, installable desktop applic
 - [x] Re-export everything cleanly in `lib.rs`
 - [x] Add unit tests for serialization
 
-## Phase 3: Database Layer (`merix-db`)
+## Phase 3: Database Layer (`merix-db`) - this is a db abstration layer for surreal db
 
 - [x] Implement `crates/db/src/connection.rs` — embedded SurrealDB (RocksDB + in-memory fallback) with proper startup/shutdown
 - [x] Create `crates/db/src/vector.rs` — define tables (`memory`, `skills`, `sessions`, `trajectories`, `user_profile`) and create HNSW/MTree vector indexes on embeddings
@@ -30,22 +30,41 @@ This checklist takes us from zero to a fully working, installable desktop applic
 - [x] Write integration tests (use `#[tokio::test]` with temporary RocksDB)
 - [x] Expose a clean `Db` struct that other crates can depend on
 
-## Phase 4: Cache Layer (`merix-cache`)
+## Phase 4: Vector Embedding (`merix-embed`) - this is how we embed vectors for semantic search
 
-- [ ] Finish `crates/cache/src/lib.rs` with Dashmap-based caches (`SessionCache`, `ContextCache`, `ModelCache`, `AgentStateCache`)
+- [ ] Implement `crates/inference/src/embed.rs` - Candle-based embedding for vector search
+
+## Phase 5: Cache Layer (`merix-cache`) - this is a RAM abstraction layer for dashmap
+
+- [ ] Finish `crates/cache/src/lib.rs` with Dashmap-based cache
 - [ ] Add TTL/eviction helpers and atomic operations (e.g., `upsert_context`)
 - [ ] Add `global_caches()` singleton pattern for easy access from Tauri commands
 
-## Phase 5: Inference Engine (`merix-inference`)
+## Phase 6: Storage Layer (`merix-storage`) - this is a unified API for the db and cache layers
+
+The storage layer is for handling both persistent and ephemeral storage
+
+- [ ] Finish `crates/storage/src/lib.rs`
+
+## Phase 7: Memory Layer (`merix-memory`) - LLM memory
+
+The memory layer is where the actual "LLM Memory" lives, it is a policy + retrieval + transformation layer and decides:
+
+- what is important
+- what gets stored
+- what gets retrieved
+- what gets embedded
+- what gets summarized
+
+## Phase 8: Inference Engine (`merix-inference`)
 
 - [ ] Implement `crates/inference/src/llm.rs` — load GGUF models via oxillama, streaming generation, FIM completions (for code)
 - [ ] Implement `crates/inference/src/stt.rs` — real-time Whisper streaming + VAD via oxiwhisper
-- [ ] Implement `crates/inference/src/embed.rs` - Candle-based embedding for vector search
 - [ ] Implement `crates/merix-inference/src/server.rs` — embedded OpenAI-compatible server (localhost:11434) so existing tools still work
 - [ ] Add Tauri commands: `chat_stream`, `transcribe_mic`, `load_model`, `list_models`
 - [ ] Add model auto-download logic (similar to Ollama) into `models/` folder
 
-## Phase 6: Tools Layer (`merix-tools`)
+## Phase 9: Tools Layer (`merix-tools`)
 
 - [ ] Implement `crates/tools/src/file.rs` (read/write, search, tree view)
 - [ ] Implement `crates/tools/src/terminal.rs` (PTY via `tauri-plugin-shell` or `portable-pty`)
@@ -53,7 +72,7 @@ This checklist takes us from zero to a fully working, installable desktop applic
 - [ ] Add more MCP-style tools (browser, git, search, etc.)
 - [ ] Expose a unified `ToolRegistry` that Rig can call
 
-## Phase 7: Agent Runtime (`merix-agent`)
+## Phase 10: Agent Runtime (`merix-agent`)
 
 - [ ] Implement `crates/agent/src/runtime.rs` — full HermesAgent using Rig + memory from SurrealDB + tools
 - [ ] Implement `crates/agent/src/skills.rs` — skill creation, refinement, vector retrieval, self-improvement loop
@@ -61,7 +80,7 @@ This checklist takes us from zero to a fully working, installable desktop applic
 - [ ] Add long-term memory nudges, trajectory saving, and cron-style background tasks
 - [ ] Connect everything to Dashmap for real-time state
 
-## Phase 8: Tauri Backend Integration (`tauri`)
+## Phase 11: Tauri Backend Integration (`tauri`)
 
 - [ ] Add all Tauri commands in `tauri/src/main.rs` (or better: create a `commands/` module)
 - [ ] Initialize DB + caches + inference + agent in the `setup` hook
@@ -69,7 +88,7 @@ This checklist takes us from zero to a fully working, installable desktop applic
 - [ ] Enable devtools and logging
 - [ ] Add window events (resize, close → graceful shutdown)
 
-## Phase 9: Frontend (Workspace UI)
+## Phase 12: Frontend (Workspace UI)
 
 - [ ] Set up a modern frontend in `src/` (Vite + React + TypeScript or Svelte — whichever you prefer)
 - [ ] Install and configure Monaco Editor, XTerm.js, shadcn/ui or Tailwind
@@ -82,7 +101,7 @@ This checklist takes us from zero to a fully working, installable desktop applic
 - [ ] Call Tauri commands via `@tauri-apps/api`
 - [ ] Add voice input button (STT) and voice output (TTS placeholder)
 
-## Phase 10: Testing & Polish
+## Phase 13: Testing & Polish
 
 - [ ] Write end-to-end tests for chat → agent → tool → memory flow
 - [ ] Add error boundaries and graceful fallbacks
@@ -91,7 +110,7 @@ This checklist takes us from zero to a fully working, installable desktop applic
 - [ ] Theme support (dark/light) + splash screen
 - [ ] Performance tuning (token streaming, vector search latency)
 
-## Phase 11: Packaging & Distribution
+## Phase 14: Packaging & Distribution
 
 - [ ] Run `cargo tauri build` for Windows, macOS, Linux
 - [ ] Create platform-specific installers (`.msi`, `.dmg`, `.deb`)
