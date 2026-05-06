@@ -1,0 +1,61 @@
+﻿[workspace.package]
+authors = ["SaviorNT"]
+version = "0.0.1"
+edition = "2024"
+license = "APACHE-2.0"
+repository = "https://github.com/saviornt/Merix-v2"
+description = "Merix - Local-first self-extending AI runtime"
+readme = "README.md"
+rust-version = "1.95"
+
+[workspace]
+members = [
+  "backend/crates/agent",
+  "backend/crates/agent_tools",
+  "backend/crates/cache",
+  "backend/crates/core",
+  "backend/crates/db",
+  "backend/crates/inference",
+  "backend/crates/memory",
+  "backend/crates/orchestration",
+  "backend/crates/storage",
+  "backend/crates/tools",
+  "backend/crates/users",
+  "backend/tauri",
+]
+
+resolver = "3"
+
+[workspace.dependencies]
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-opener = "2"
+tauri-plugin-shell = "2"
+surrealdb = { version = "3", features = [
+  "protocol-http",
+  "kv-mem",
+  "kv-rocksdb",
+] }
+dashmap = "6"
+oxillama = "0.1"
+oxiwhisper = "0.1"
+rig = "0.36"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+thiserror = "2.0"
+uuid = { version = "1.10", features = ["v4", "fast-rng", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tokenizers = "0.23"
+
+merix-agent = { path = "backend/crates/agent" }
+merix-agent-tools = { path = "backend/crates/agent_tools" }
+merix-cache = { path = "backend/crates/cache" }
+merix-core = { path = "backend/crates/core" }
+merix-db = { path = "backend/crates/db" }
+merix-inference = { path = "backend/crates/inference" }
+merix-memory = { path = "backend/crates/memory" }
+merix-orchestration = { path = "backend/crates/orchestration" }
+merix-storage = { path = "backend/crates/storage" }
+merix-tools = { path = "backend/crates/tools" }
+merix-users = { path = "backend/crates/users" }

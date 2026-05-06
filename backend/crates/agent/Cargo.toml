@@ -1,0 +1,17 @@
+﻿[package]
+name = "merix-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+merix-core = { workspace = true }
+merix-memory = { path = "../memory" }
+merix-agent-tools = { path = "../agent_tools" }
+merix-orchestration = { path = "../orchestration" }
+merix-db = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

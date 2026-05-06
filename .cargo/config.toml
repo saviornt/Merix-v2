@@ -1,0 +1,6 @@
+﻿[build]
+rustc-wrapper = "sccache"
+
+[env]
+SCCACHE_CACHE_SIZE = "10G"
+SCCACHE_DIRECT = "true"
