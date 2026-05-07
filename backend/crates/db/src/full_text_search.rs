@@ -3,10 +3,10 @@ use merix_core::MerixError;
 use surrealdb_types::{Value, SurrealValue};
 use tracing;
 
-/// Production-ready full-text search for SurrealDB v3.
+/// Full-text search for SurrealDB v3.
 ///
 /// Uses the `@@` (matches) operator with BM25 scoring and optional highlighting.
-/// Indexes must be defined once via `define_full_text_index` (or manually in schemas).
+/// Indexes must be defined once via `define_full_text_index`.
 pub async fn search_text<T: SurrealValue>(
     db: &Db,
     collection: &str,
@@ -14,7 +14,6 @@ pub async fn search_text<T: SurrealValue>(
     query: &str,
     limit: u32,
 ) -> Result<Vec<T>, MerixError> {
-    // Uses numeric match reference (0) so we can extract search::score(0)
     let raw_query = format!(
         r#"
         SELECT *,
@@ -40,7 +39,6 @@ pub async fn search_text<T: SurrealValue>(
     for v in raw {
         let record = T::from_value(v)
             .map_err(|e| MerixError::Db(format!("Failed to convert record: {}", e)))?;
-
         results.push(record);
     }
 
@@ -53,17 +51,7 @@ pub async fn search_text<T: SurrealValue>(
 
 /// Helper: Define a full-text index + analyzer (call once via apply_schemas).
 ///
-/// Example usage (in your schema setup):
-/// ```
-/// merix_db::define_full_text_index(
-///     &db,
-///     "documents",
-///     "content",
-///     "english_analyzer",
-///     true,  // enable highlights
-/// )
-/// .await?;
-/// ```
+/// Uses correct SurrealDB v3 syntax: `FULLTEXT ANALYZER`.
 pub async fn define_full_text_index(
     db: &Db,
     collection: &str,
@@ -82,7 +70,7 @@ pub async fn define_full_text_index(
         DEFINE INDEX IF NOT EXISTS idx_{field}_ft
             ON TABLE {collection}
             FIELDS {field}
-            SEARCH ANALYZER {analyzer_name} BM25{highlights};
+            FULLTEXT ANALYZER {analyzer_name} BM25{highlights};
         "#
     );
 

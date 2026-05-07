@@ -11,6 +11,7 @@ rust-version.workspace = true
 merix-core = { workspace = true }
 surrealdb = { workspace = true }
 surrealdb-types = { workspace = true }
+geo-types = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }

@@ -37,6 +37,7 @@ surrealdb = { version = "3", features = [
   "kv-rocksdb",
 ] }
 surrealdb-types = { version = "3"}
+geo-types = { version = "0.7" }
 dashmap = "6"
 oxillama = "0.1"
 oxiwhisper = "0.1"

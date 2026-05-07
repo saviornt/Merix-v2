@@ -3793,6 +3793,7 @@ name = "merix-db"
 version = "0.0.1"
 dependencies = [
  "chrono",
+ "geo-types",
  "merix-core",
  "serde",
  "serde_json",

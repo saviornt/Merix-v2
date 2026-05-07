@@ -1,6 +1,7 @@
 use crate::Db;
 use merix_core::MerixError;
-use surrealdb_types::{Value, SurrealValue};
+use surrealdb_types::{Value, SurrealValue, Geometry};
+use geo_types::Point;
 use tracing;
 
 /// Production-ready geospatial queries for SurrealDB v3.
@@ -11,7 +12,7 @@ pub async fn nearby<T: SurrealValue>(
     db: &Db,
     collection: &str,
     location_field: &str,
-    center_lon_lat: (f64, f64), // (longitude, latitude) — SurrealDB order
+    center_lon_lat: (f64, f64), // (longitude, latitude)
     radius_meters: f64,
     limit: u32,
 ) -> Result<Vec<T>, MerixError> {
@@ -27,9 +28,12 @@ pub async fn nearby<T: SurrealValue>(
         location_field, collection, location_field
     );
 
+    // Bind center as proper Geometry::Point (required by geo::distance)
+    let center = Geometry::Point(Point::new(center_lon_lat.0, center_lon_lat.1));
+
     let raw: Vec<Value> = db
         .query(&raw_query)
-        .bind(("center", vec![center_lon_lat.0, center_lon_lat.1])) // [lon, lat]
+        .bind(("center", center))
         .bind(("radius", radius_meters))
         .bind(("limit", limit as i64))
         .await
@@ -52,9 +56,6 @@ pub async fn nearby<T: SurrealValue>(
 }
 
 /// Helper: Define a geospatial index (call once via apply_schemas).
-///
-/// Note: In current SurrealDB v3 this creates a regular index.
-/// True spatial indexing support is still maturing.
 pub async fn define_geospatial_index(
     db: &Db,
     collection: &str,

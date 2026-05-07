@@ -43,6 +43,10 @@ where
     Ok(edge_id)
 }
 
+/// Returns the **target nodes** (not the edges) for the traversal.
+///
+/// Uses `->edge_table->*` (or limited depth) syntax so the returned records
+/// are the actual nodes (`TestGraphNode` with the `name` field).
 pub async fn traverse<T: SurrealValue>(
     db: &Db,
     start_id: impl AsRef<str>,
@@ -52,13 +56,24 @@ pub async fn traverse<T: SurrealValue>(
     limit: Option<u32>,
 ) -> Result<Vec<T>, MerixError> {
     let start = start_id.as_ref();
-    let depth_str = depth.map_or_else(|| "".to_string(), |d| format!("[..{}]", d));
-    let limit_str = limit.map_or_else(|| "".to_string(), |l| format!("LIMIT {}", l));
+
+    // Correct SurrealDB v3 depth syntax
+    let depth_str = depth.map_or_else(|| "->*".to_string(), |d| format!("[..{}]", d));
+    let limit_str = limit.map_or_else(String::new, |l| format!(" LIMIT {}", l));
 
     let query = match direction {
-        GraphDirection::Out => format!("SELECT ->{}->{} {} FROM {}", edge_table, depth_str, limit_str, start),
-        GraphDirection::In => format!("SELECT <-{}<-{} {} FROM {}", edge_table, depth_str, limit_str, start),
-        GraphDirection::Both => format!("SELECT ->{}->{} OR <-{}<-{} {} FROM {}", edge_table, depth_str, edge_table, depth_str, limit_str, start),
+        GraphDirection::Out => format!(
+            "SELECT ->{}{} FROM {}{}",
+            edge_table, depth_str, start, limit_str
+        ),
+        GraphDirection::In => format!(
+            "SELECT <-{}{} FROM {}{}",
+            edge_table, depth_str, start, limit_str
+        ),
+        GraphDirection::Both => format!(
+            "SELECT ->{}{} OR <-{}{} FROM {}{}",
+            edge_table, depth_str, edge_table, depth_str, start, limit_str
+        ),
     };
 
     let records: Vec<T> = db
@@ -68,7 +83,7 @@ pub async fn traverse<T: SurrealValue>(
         .take(0)
         .map_err(|e| MerixError::Db(e.to_string()))?;
 
-    tracing::debug!("Traversed {} edges from {} ({} results)", edge_table, start, records.len());
+    tracing::debug!("Traversed {} edges from {} ({} target nodes returned)", edge_table, start, records.len());
     Ok(records)
 }
 
