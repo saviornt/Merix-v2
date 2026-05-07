@@ -3,6 +3,7 @@ use crate::schemas::{RecordId, QueryFilter};
 use merix_core::MerixError;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 /// Helper to strip SurrealDB's automatic "id" field before deserializing
 fn strip_surreal_id(mut value: Value) -> Value {
@@ -12,66 +13,83 @@ fn strip_surreal_id(mut value: Value) -> Value {
     value
 }
 
-/// General NoSQL-style CRUD using schema wrappers
+/// Insert a single record and return the actual RecordId that SurrealDB used
 pub async fn insert<T: Serialize>(
     db: &Db,
     collection: &str,
     data: T,
-    id: Option<RecordId>,
-) -> Result<(), MerixError> {
-    let mut value = serde_json::to_value(data)
+) -> Result<RecordId, MerixError> {
+    let value = serde_json::to_value(data)
         .map_err(|e| MerixError::Db(e.to_string()))?;
 
-    if let Some(ref rid) = id {
-        value["id"] = json!(rid.as_surreal());
-    }
+    let query = format!("CREATE {} CONTENT $data RETURN id", collection);
 
-    let query = if id.is_some() {
-        format!("UPSERT {} CONTENT $data", collection)
-    } else {
-        format!("CREATE {} CONTENT $data", collection)
-    };
-
-    db.query(&query)
+    let raw: Vec<Value> = db.query(&query)
         .bind(("data", value))
         .await
+        .map_err(|e| MerixError::Db(e.to_string()))?
+        .take(0)
         .map_err(|e| MerixError::Db(e.to_string()))?;
-    Ok(())
+
+    let id_value = raw.into_iter().next()
+        .and_then(|v| v.get("id").cloned())
+        .ok_or_else(|| MerixError::Db("No id returned from insert".to_string()))?;
+
+    let id_str = id_value.as_str()
+        .ok_or_else(|| MerixError::Db("Invalid id format from SurrealDB".to_string()))?;
+
+    let parts: Vec<&str> = id_str.split(':').collect();
+    if parts.len() != 2 {
+        return Err(MerixError::Db("Malformed SurrealDB id".to_string()));
+    }
+
+    let table = parts[0].to_string();
+    let id = Uuid::parse_str(parts[1])
+        .map_err(|e| MerixError::Db(format!("Invalid UUID: {}", e)))?;
+
+    Ok(RecordId::new(table, id))
 }
 
+/// Insert many records and return their actual RecordIds
 pub async fn insert_many<T: Serialize>(
     db: &Db,
     collection: &str,
     data: Vec<T>,
-    ids: Option<Vec<RecordId>>,
-) -> Result<(), MerixError> {
-    let mut bound_items = Vec::with_capacity(data.len());
+) -> Result<Vec<RecordId>, MerixError> {
+    let bound_items: Vec<Value> = data
+        .into_iter()
+        .map(|item| serde_json::to_value(item).map_err(|e| MerixError::Db(e.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
 
-    for (i, item) in data.into_iter().enumerate() {
-        let mut value = serde_json::to_value(item)
-            .map_err(|e| MerixError::Db(e.to_string()))?;
+    let query = format!("CREATE {} CONTENT $data RETURN id", collection);
 
-        if let Some(ref id_list) = ids {
-            if let Some(rid) = id_list.get(i) {
-                value["id"] = json!(rid.as_surreal());
-            }
-        }
-        bound_items.push(value);
-    }
-
-    let query = if ids.is_some() {
-        format!("UPSERT {} CONTENT $data", collection)
-    } else {
-        format!("CREATE {} CONTENT $data", collection)
-    };
-
-    db.query(&query)
+    let raw: Vec<Value> = db.query(&query)
         .bind(("data", json!(bound_items)))
         .await
+        .map_err(|e| MerixError::Db(e.to_string()))?
+        .take(0)
         .map_err(|e| MerixError::Db(e.to_string()))?;
-    Ok(())
+
+    let mut ids = Vec::with_capacity(raw.len());
+    for v in raw {
+        let id_str = v.get("id")
+            .and_then(|i| i.as_str())
+            .ok_or_else(|| MerixError::Db("No id in batch insert result".to_string()))?;
+
+        let parts: Vec<&str> = id_str.split(':').collect();
+        if parts.len() == 2 {
+            let table = parts[0].to_string();
+            let id = Uuid::parse_str(parts[1])
+                .map_err(|e| MerixError::Db(format!("Invalid UUID: {}", e)))?;
+            ids.push(RecordId::new(table, id));
+        } else {
+            ids.push(RecordId::random(collection));
+        }
+    }
+    Ok(ids)
 }
 
+// The rest of the file stays exactly the same (update, find_all, find_by_id, delete, delete_by_filter)
 pub async fn update(db: &Db, id: RecordId, updates: Value) -> Result<(), MerixError> {
     let query = "UPDATE $id MERGE $updates";
     db.query(query)
@@ -106,9 +124,8 @@ pub async fn find_by_id<T: DeserializeOwned>(db: &Db, id: RecordId) -> Result<Op
         .map_err(|e| MerixError::Db(e.to_string()))?;
 
     if let Some(v) = raw.pop() {
-        // Defensive handling: Surreal sometimes returns just the ID string for non-existent records
         if let Some(s) = v.as_str() {
-            if s.contains(':') {  // looks like a Surreal ID
+            if s.contains(':') {
                 return Ok(None);
             }
         }

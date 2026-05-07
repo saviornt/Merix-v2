@@ -24,7 +24,7 @@ impl HasEmbedding for TestEmbeddingRecord {
 
 #[tokio::test]
 async fn test_merix_db_full_integration() {
-    println!("🧪 Starting Merix DB full integration test (with Uuid + hybrid vector ops)...");
+    println!("🧪 Starting Merix DB full integration test (with RecordId returns)...");
 
     let db = match init().await {
         Ok(db) => {
@@ -46,50 +46,56 @@ async fn test_merix_db_full_integration() {
 async fn test_basic_crud(db: &merix_db::Db) {
     println!("\n📋 Testing Basic CRUD...");
 
-    let rid = RecordId::random("test_records");
-
     let record = TestRecord {
         name: "Integration Test Record".to_string(),
         value: 42,
         tags: vec!["test".to_string(), "db".to_string()],
     };
 
-    // Insert with explicit ID (so find_by_id will always match)
-    operations::insert(db, "test_records", record.clone(), Some(rid.clone()))
+    // ✅ insert now returns the real RecordId that SurrealDB assigned
+    let rid = operations::insert(db, "test_records", record.clone())
         .await
-        .expect("insert with ID failed");
-    println!("  ✅ insert() (with explicit RecordId)");
+        .expect("insert failed");
+    println!("  ✅ insert() → returned RecordId: {}", rid.as_surreal());
 
     let batch = vec![
         TestRecord { name: "Batch Item 1".to_string(), value: 100, tags: vec![] },
         TestRecord { name: "Batch Item 2".to_string(), value: 200, tags: vec![] },
     ];
-    operations::insert_many(db, "test_records", batch, None)
+    let batch_ids = operations::insert_many(db, "test_records", batch)
         .await
         .expect("insert_many failed");
-    println!("  ✅ insert_many()");
+    println!("  ✅ insert_many() → {} RecordIds returned", batch_ids.len());
 
-    let all: Vec<TestRecord> = operations::find_all(db, "test_records").await.expect("find_all failed");
+    let all: Vec<TestRecord> = operations::find_all(db, "test_records")
+        .await
+        .expect("find_all failed");
     println!("  ✅ find_all() - {} records", all.len());
 
-    operations::update(db, rid.clone(), json!({"value": 999})).await.expect("update failed");
+    operations::update(db, rid.clone(), json!({"value": 999}))
+        .await
+        .expect("update failed");
     println!("  ✅ update()");
 
-    let found: Option<TestRecord> = operations::find_by_id(db, rid.clone()).await.expect("find_by_id failed");
+    let found: Option<TestRecord> = operations::find_by_id(db, rid.clone())
+        .await
+        .expect("find_by_id failed");
     assert!(found.is_some(), "find_by_id should return the record");
     println!("  ✅ find_by_id()");
 
     operations::delete(db, rid.clone()).await.expect("delete failed");
     println!("  ✅ delete()");
 
-    operations::delete_by_filter(db, "test_records", QueryFilter::Where(json!({"value": 200}))).await.expect("delete_by_filter failed");
+    operations::delete_by_filter(db, "test_records", QueryFilter::Where(json!({"value": 200})))
+        .await
+        .expect("delete_by_filter failed");
     println!("  ✅ delete_by_filter()");
 
     println!("  ✅ All basic CRUD passed");
 }
 
 async fn test_vector_operations(db: &merix_db::Db) {
-    println!("\n🔬 Testing Vector operations (hybrid + Uuid)...");
+    println!("\n🔬 Testing Vector operations (hybrid + RecordId)...");
 
     let embed_docs = vec![
         TestEmbeddingRecord {
@@ -104,7 +110,9 @@ async fn test_vector_operations(db: &merix_db::Db) {
         },
     ];
 
-    vectors::upsert(db, "test_embeddings", embed_docs, None).await.expect("upsert failed");
+    vectors::upsert(db, "test_embeddings", embed_docs, None)
+        .await
+        .expect("vector upsert failed");
     println!("  ✅ vectors::upsert()");
 
     let query = VectorQuery {
@@ -113,11 +121,12 @@ async fn test_vector_operations(db: &merix_db::Db) {
         threshold: Some(0.0),
     };
 
-    // Explicit type annotation fixes DeserializeOwned
     let results: Vec<VectorSearchResult<TestEmbeddingRecord>> =
-        vectors::search(db, "test_embeddings", query, None).await.expect("vector search failed");
+        vectors::search(db, "test_embeddings", query, None)
+            .await
+            .expect("vector search failed");
 
-    assert!(!results.is_empty());
+    assert!(!results.is_empty(), "vector search should return results");
     println!("  ✅ vectors::search() - {} results", results.len());
 
     println!("  ✅ All vector operations passed");
