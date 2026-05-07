@@ -2,7 +2,7 @@
 /target
 /models/*
 !/models/README.md
-/data
+/test_data
 
 # Logs
 logs
