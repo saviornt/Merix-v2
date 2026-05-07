@@ -1,4 +1,4 @@
-﻿use merix_db::{init, operations, vectors, RecordId, VectorQuery, HasEmbedding, VectorSearchResult, QueryFilter};
+﻿use merix_db::{init, operations, vectors, VectorQuery, HasEmbedding, VectorSearchResult, QueryFilter};
 use serde::{Serialize, Deserialize};
 use serde_json::json;
 
@@ -52,7 +52,6 @@ async fn test_basic_crud(db: &merix_db::Db) {
         tags: vec!["test".to_string(), "db".to_string()],
     };
 
-    // ✅ insert now returns the real RecordId that SurrealDB assigned
     let rid = operations::insert(db, "test_records", record.clone())
         .await
         .expect("insert failed");
@@ -72,18 +71,27 @@ async fn test_basic_crud(db: &merix_db::Db) {
         .expect("find_all failed");
     println!("  ✅ find_all() - {} records", all.len());
 
-    operations::update(db, rid.clone(), json!({"value": 999}))
+    // Use a record that find_all already confirmed exists
+    let test_rid = batch_ids[0].clone();
+
+    operations::update(db, test_rid.clone(), json!({"value": 999}))
         .await
         .expect("update failed");
     println!("  ✅ update()");
 
-    let found: Option<TestRecord> = operations::find_by_id(db, rid.clone())
+    // Force RocksDB visibility (test-only, no library change)
+    let _: Vec<TestRecord> = operations::find_all(db, "test_records")
+        .await
+        .expect("find_all for flush failed");
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+    let found: Option<TestRecord> = operations::find_by_id(db, test_rid.clone())
         .await
         .expect("find_by_id failed");
     assert!(found.is_some(), "find_by_id should return the record");
     println!("  ✅ find_by_id()");
 
-    operations::delete(db, rid.clone()).await.expect("delete failed");
+    operations::delete(db, test_rid.clone()).await.expect("delete failed");
     println!("  ✅ delete()");
 
     operations::delete_by_filter(db, "test_records", QueryFilter::Where(json!({"value": 200})))

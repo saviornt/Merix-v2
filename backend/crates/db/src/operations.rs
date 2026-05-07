@@ -3,7 +3,6 @@ use crate::schemas::{RecordId, QueryFilter};
 use merix_core::MerixError;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{json, Value};
-use uuid::Uuid;
 
 /// Helper to strip SurrealDB's automatic "id" field before deserializing
 fn strip_surreal_id(mut value: Value) -> Value {
@@ -43,11 +42,7 @@ pub async fn insert<T: Serialize>(
         return Err(MerixError::Db("Malformed SurrealDB id".to_string()));
     }
 
-    let table = parts[0].to_string();
-    let id = Uuid::parse_str(parts[1])
-        .map_err(|e| MerixError::Db(format!("Invalid UUID: {}", e)))?;
-
-    Ok(RecordId::new(table, id))
+    Ok(RecordId::new(parts[0].to_string(), parts[1].to_string()))
 }
 
 /// Insert many records and return their actual RecordIds
@@ -61,7 +56,8 @@ pub async fn insert_many<T: Serialize>(
         .map(|item| serde_json::to_value(item).map_err(|e| MerixError::Db(e.to_string())))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let query = format!("CREATE {} CONTENT $data RETURN id", collection);
+    // ✅ Use INSERT INTO for batch operations (SurrealDB's recommended syntax)
+    let query = format!("INSERT INTO {} $data RETURN id", collection);
 
     let raw: Vec<Value> = db.query(&query)
         .bind(("data", json!(bound_items)))
@@ -78,10 +74,7 @@ pub async fn insert_many<T: Serialize>(
 
         let parts: Vec<&str> = id_str.split(':').collect();
         if parts.len() == 2 {
-            let table = parts[0].to_string();
-            let id = Uuid::parse_str(parts[1])
-                .map_err(|e| MerixError::Db(format!("Invalid UUID: {}", e)))?;
-            ids.push(RecordId::new(table, id));
+            ids.push(RecordId::new(parts[0].to_string(), parts[1].to_string()));
         } else {
             ids.push(RecordId::random(collection));
         }

@@ -47,14 +47,14 @@ pub struct VectorSearchResult<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RecordId {
     pub table: String,
-    pub id: Uuid,
+    pub id: String,
 }
 
 impl RecordId {
-    pub fn new(table: impl Into<String>, id: Uuid) -> Self {
+    pub fn new(table: impl Into<String>, id: impl Into<String>) -> Self {
         Self {
             table: table.into(),
-            id,
+            id: id.into(),
         }
     }
 
@@ -71,7 +71,7 @@ impl RecordId {
 
     /// Create a brand-new random RecordId
     pub fn random(table: impl Into<String>) -> Self {
-        Self::new(table, Uuid::new_v4())
+        Self::new(table, uuid::Uuid::new_v4().to_string())
     }
 }
 
