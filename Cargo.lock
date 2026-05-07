@@ -3797,6 +3797,7 @@ dependencies = [
  "serde",
  "serde_json",
  "surrealdb",
+ "surrealdb-types",
  "tokio",
  "tracing",
  "uuid",

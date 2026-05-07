@@ -1,44 +1,49 @@
 ﻿use crate::Db;
 use crate::schemas::{VectorSearchResult, VectorQuery, HasEmbedding, RecordId};
 use merix_core::MerixError;
-use serde::{Serialize, de::DeserializeOwned};
-use serde_json::json;
+use serde::Serialize;
+use surrealdb_types::{Value, SurrealValue};
+use tracing;
 
-/// Upsert vector-enabled documents (hybrid create-or-update)
-/// If `ids` is Some, it must match the length of `items` and will be injected as the record `id`.
-pub async fn upsert<T: Serialize + HasEmbedding>(
-    db: &Db,
-    collection: &str,
-    items: Vec<T>,
-    ids: Option<Vec<RecordId>>,
-) -> Result<(), MerixError> {
+/// Upsert with high-level .upsert() for heavy workloads (create-or-update)
+pub async fn upsert<T>(db: &Db, collection: &str, items: Vec<T>, ids: Option<Vec<RecordId>>) -> Result<(), MerixError>
+where
+    T: Serialize + SurrealValue,
+{
     let mut bound_items = Vec::with_capacity(items.len());
+    let item_count = items.len(); // capture count before the move into the loop
 
     for (i, item) in items.into_iter().enumerate() {
-        let mut value = serde_json::to_value(&item)
-            .map_err(|e| MerixError::Db(e.to_string()))?;
+        let mut value = item.into_value();
 
         if let Some(ref id_list) = ids {
             if let Some(rid) = id_list.get(i) {
-                value["id"] = json!(rid.as_surreal());
+                if let Value::Object(mut obj) = value {
+                    obj.insert("id".to_string(), Value::from(rid.as_surreal()));
+                    value = Value::Object(obj);
+                } else {
+                    let mut obj = std::collections::BTreeMap::new();
+                    obj.insert("id".to_string(), Value::from(rid.as_surreal()));
+                    value = Value::Object(obj.into());
+                }
             }
         }
 
         bound_items.push(value);
     }
 
-    let query = format!("UPSERT {} CONTENT $items", collection);
-
-    db.query(&query)
-        .bind(("items", json!(bound_items)))
+    let _: Vec<Value> = db
+        .upsert(collection)
+        .content(bound_items)
         .await
-        .map_err(|e| MerixError::Db(e.to_string()))?;
+        .map_err(|e| MerixError::Db(format!("Vector upsert failed: {}", e)))?;
 
+    tracing::debug!("Upserted {} vector records to {}", item_count, collection);
     Ok(())
 }
 
-/// Vector similarity search (hybrid with optional RecordId filter)
-pub async fn search<T: DeserializeOwned>(
+/// Vector search (optimized SurrealQL + cosine distance, production HNSW ready)
+pub async fn search<T: SurrealValue>(
     db: &Db,
     collection: &str,
     query: VectorQuery,
@@ -61,26 +66,33 @@ pub async fn search<T: DeserializeOwned>(
 
     let mut q = db.query(&raw_query)
         .bind(("query", query.embedding))
-        .bind(("limit", query.limit));
+        .bind(("limit", query.limit as i64));
 
     if let Some(ref fid) = filter_id {
         q = q.bind(("filter_id", fid.as_surreal()));
     }
 
-    let raw: Vec<serde_json::Value> = q
+    let raw: Vec<Value> = q
         .await
-        .map_err(|e| MerixError::Db(e.to_string()))?
+        .map_err(|e| MerixError::Db(format!("Vector search failed: {}", e)))?
         .take(0)
         .map_err(|e| MerixError::Db(e.to_string()))?;
 
     let mut results = Vec::new();
     for mut v in raw {
-        let score = v.get("score").and_then(|s| s.as_f64()).unwrap_or(0.0) as f32;
-        if let Some(obj) = v.as_object_mut() {
-            obj.remove("score");
-        }
-        let record: T = serde_json::from_value(v)
-            .map_err(|e| MerixError::Db(e.to_string()))?;
+        let score = if let Value::Object(ref mut obj) = v {
+            if let Some(Value::Number(n)) = obj.remove("score") {
+                n.to_f64().unwrap_or(0.0) as f32
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+
+        let record = T::from_value(v)
+            .map_err(|e| MerixError::Db(format!("Failed to convert record: {}", e)))?;
+
         results.push(VectorSearchResult { record, score });
     }
 

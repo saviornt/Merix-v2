@@ -32,9 +32,11 @@ tauri-plugin-opener = "2"
 tauri-plugin-shell = "2"
 surrealdb = { version = "3", features = [
   "protocol-http",
+  "protocol-ws",
   "kv-mem",
   "kv-rocksdb",
 ] }
+surrealdb-types = { version = "3"}
 dashmap = "6"
 oxillama = "0.1"
 oxiwhisper = "0.1"

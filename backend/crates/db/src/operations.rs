@@ -1,42 +1,23 @@
 ﻿use crate::Db;
 use crate::schemas::{RecordId, QueryFilter};
 use merix_core::MerixError;
-use serde::{Serialize, de::DeserializeOwned};
-use serde_json::{json, Value};
+use serde::Serialize;
+use surrealdb_types::{Value, SurrealValue};
 
-/// Helper to strip SurrealDB's automatic "id" field before deserializing
-fn strip_surreal_id(mut value: Value) -> Value {
-    if let Some(obj) = value.as_object_mut() {
-        obj.remove("id");
-    }
-    value
-}
-
-/// Insert a single record and return the actual RecordId that SurrealDB used
-pub async fn insert<T: Serialize>(
-    db: &Db,
-    collection: &str,
-    data: T,
-) -> Result<RecordId, MerixError> {
-    let value = serde_json::to_value(data)
-        .map_err(|e| MerixError::Db(e.to_string()))?;
-
-    let query = format!("CREATE {} CONTENT $data RETURN id", collection);
-
-    let raw: Vec<Value> = db.query(&query)
-        .bind(("data", value))
+/// Production-ready insert using high-level .create() API (SurrealDB v3)
+pub async fn insert<T>(db: &Db, collection: &str, data: T) -> Result<RecordId, MerixError>
+where
+    T: Serialize + SurrealValue,
+{
+    let created: Option<Value> = db
+        .create(collection)
+        .content(data)
         .await
-        .map_err(|e| MerixError::Db(e.to_string()))?
-        .take(0)
-        .map_err(|e| MerixError::Db(e.to_string()))?;
+        .map_err(|e| MerixError::Db(format!("Create failed: {}", e)))?;
 
-    let id_value = raw.into_iter().next()
-        .and_then(|v| v.get("id").cloned())
-        .ok_or_else(|| MerixError::Db("No id returned from insert".to_string()))?;
+    let value = created.ok_or_else(|| MerixError::Db("No record created".to_string()))?;
 
-    let id_str = id_value.as_str()
-        .ok_or_else(|| MerixError::Db("Invalid id format from SurrealDB".to_string()))?;
-
+    let id_str = extract_record_id_string(&value)?;
     let parts: Vec<&str> = id_str.split(':').collect();
     if parts.len() != 2 {
         return Err(MerixError::Db("Malformed SurrealDB id".to_string()));
@@ -45,33 +26,20 @@ pub async fn insert<T: Serialize>(
     Ok(RecordId::new(parts[0].to_string(), parts[1].to_string()))
 }
 
-/// Insert many records and return their actual RecordIds
-pub async fn insert_many<T: Serialize>(
-    db: &Db,
-    collection: &str,
-    data: Vec<T>,
-) -> Result<Vec<RecordId>, MerixError> {
-    let bound_items: Vec<Value> = data
-        .into_iter()
-        .map(|item| serde_json::to_value(item).map_err(|e| MerixError::Db(e.to_string())))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    // ✅ Use INSERT INTO for batch operations (SurrealDB's recommended syntax)
-    let query = format!("INSERT INTO {} $data RETURN id", collection);
-
-    let raw: Vec<Value> = db.query(&query)
-        .bind(("data", json!(bound_items)))
+/// Batch insert using high-level .insert() (optimal for heavy workloads)
+pub async fn insert_many<T>(db: &Db, collection: &str, data: Vec<T>) -> Result<Vec<RecordId>, MerixError>
+where
+    T: Serialize + SurrealValue,
+{
+    let created: Vec<Value> = db
+        .insert(collection)
+        .content(data)
         .await
-        .map_err(|e| MerixError::Db(e.to_string()))?
-        .take(0)
-        .map_err(|e| MerixError::Db(e.to_string()))?;
+        .map_err(|e| MerixError::Db(format!("Batch insert failed: {}", e)))?;
 
-    let mut ids = Vec::with_capacity(raw.len());
-    for v in raw {
-        let id_str = v.get("id")
-            .and_then(|i| i.as_str())
-            .ok_or_else(|| MerixError::Db("No id in batch insert result".to_string()))?;
-
+    let mut ids = Vec::with_capacity(created.len());
+    for v in created {
+        let id_str = extract_record_id_string(&v)?;
         let parts: Vec<&str> = id_str.split(':').collect();
         if parts.len() == 2 {
             ids.push(RecordId::new(parts[0].to_string(), parts[1].to_string()));
@@ -82,86 +50,74 @@ pub async fn insert_many<T: Serialize>(
     Ok(ids)
 }
 
-// The rest of the file stays exactly the same (update, find_all, find_by_id, delete, delete_by_filter)
 pub async fn update(db: &Db, id: RecordId, updates: Value) -> Result<(), MerixError> {
-    let query = "UPDATE $id MERGE $updates";
-    db.query(query)
-        .bind(("id", id.as_surreal()))
-        .bind(("updates", updates))
+    let _: Option<Value> = db
+        .update(id.as_surreal())
+        .merge(updates)
         .await
-        .map_err(|e| MerixError::Db(e.to_string()))?;
+        .map_err(|e| MerixError::Db(format!("Update failed: {}", e)))?;
     Ok(())
 }
 
-pub async fn find_all<T: DeserializeOwned>(db: &Db, collection: &str) -> Result<Vec<T>, MerixError> {
-    let query = format!("SELECT * FROM {}", collection);
-    let raw: Vec<Value> = db.query(&query)
+pub async fn find_all<T: SurrealValue>(db: &Db, collection: &str) -> Result<Vec<T>, MerixError> {
+    db.select(collection)
         .await
-        .map_err(|e| MerixError::Db(e.to_string()))?
-        .take(0)
-        .map_err(|e| MerixError::Db(e.to_string()))?;
-
-    raw.into_iter()
-        .map(|v| serde_json::from_value(strip_surreal_id(v)))
-        .collect::<Result<Vec<T>, _>>()
-        .map_err(|e| MerixError::Db(e.to_string()))
+        .map_err(|e| MerixError::Db(format!("Select failed: {}", e)))
 }
 
-pub async fn find_by_id<T: DeserializeOwned>(db: &Db, id: RecordId) -> Result<Option<T>, MerixError> {
-    let query = "SELECT * FROM $id";
-    let mut raw: Vec<Value> = db.query(query)
-        .bind(("id", id.as_surreal()))
+pub async fn find_by_id<T: SurrealValue>(db: &Db, id: RecordId) -> Result<Option<T>, MerixError> {
+    db.select(id.as_surreal())
         .await
-        .map_err(|e| MerixError::Db(e.to_string()))?
-        .take(0)
-        .map_err(|e| MerixError::Db(e.to_string()))?;
-
-    if let Some(v) = raw.pop() {
-        // SurrealDB sometimes returns just the ID string for missing records
-        if let Some(s) = v.as_str() {
-            if s.contains(':') {
-                return Ok(None);
-            }
-        }
-        // Normal case: full record object
-        Ok(Some(serde_json::from_value(strip_surreal_id(v))
-            .map_err(|e| MerixError::Db(e.to_string()))?))
-    } else {
-        Ok(None)
-    }
+        .map_err(|e| MerixError::Db(format!("Select by id failed: {}", e)))
 }
 
 pub async fn delete(db: &Db, id: RecordId) -> Result<(), MerixError> {
-    let query = "DELETE $id";
-    db.query(query)
-        .bind(("id", id.as_surreal()))
+    let _: Option<Value> = db
+        .delete(id.as_surreal())
         .await
-        .map_err(|e| MerixError::Db(e.to_string()))?;
+        .map_err(|e| MerixError::Db(format!("Delete failed: {}", e)))?;
     Ok(())
 }
 
 pub async fn delete_by_filter(db: &Db, collection: &str, filter: QueryFilter) -> Result<(), MerixError> {
     match filter {
         QueryFilter::Where(v) => {
-            let query = format!("DELETE {} WHERE $filter", collection);
-            db.query(&query)
+            db.query(&format!("DELETE {} WHERE $filter", collection))
                 .bind(("filter", v))
                 .await
                 .map_err(|e| MerixError::Db(e.to_string()))?;
         }
         QueryFilter::Ids(ids) => {
             let id_list: Vec<String> = ids.into_iter().map(|r| r.as_surreal()).collect();
-            let query = format!("DELETE {} WHERE id IN $ids", collection);
-            db.query(&query)
+            db.query(&format!("DELETE {} WHERE id IN $ids", collection))
                 .bind(("ids", id_list))
                 .await
                 .map_err(|e| MerixError::Db(e.to_string()))?;
         }
         QueryFilter::Raw(sql) => {
-            db.query(&sql)
-                .await
-                .map_err(|e| MerixError::Db(e.to_string()))?;
+            db.query(&sql).await.map_err(|e| MerixError::Db(e.to_string()))?;
         }
     }
     Ok(())
+}
+
+/// Extract full record ID as "table:key" string from surrealdb_types::Value (avoids Display/ToString issues on RecordId)
+fn extract_record_id_string(value: &Value) -> Result<String, MerixError> {
+    match value {
+        Value::Object(obj) => {
+            if let Some(id_val) = obj.get("id") {
+                match id_val {
+                    Value::RecordId(rid) => {
+                        // RecordId fields are public in v3; use table + key
+                        Ok(format!("{}:{}", rid.table, rid.key))
+                    }
+                    Value::String(s) => Ok(s.clone()),
+                    _ => Ok(format!("{:?}", id_val)), // safe fallback
+                }
+            } else {
+                Err(MerixError::Db("No 'id' field in returned record".to_string()))
+            }
+        }
+        _ => Err(MerixError::Db("Expected Object from database".to_string())),
+    }
 }
