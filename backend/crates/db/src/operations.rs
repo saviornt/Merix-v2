@@ -117,11 +117,13 @@ pub async fn find_by_id<T: DeserializeOwned>(db: &Db, id: RecordId) -> Result<Op
         .map_err(|e| MerixError::Db(e.to_string()))?;
 
     if let Some(v) = raw.pop() {
+        // SurrealDB sometimes returns just the ID string for missing records
         if let Some(s) = v.as_str() {
             if s.contains(':') {
                 return Ok(None);
             }
         }
+        // Normal case: full record object
         Ok(Some(serde_json::from_value(strip_surreal_id(v))
             .map_err(|e| MerixError::Db(e.to_string()))?))
     } else {

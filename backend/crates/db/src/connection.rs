@@ -3,8 +3,8 @@ use surrealdb::engine::any::Any;
 use surrealdb::Surreal;
 use std::sync::Arc;
 use merix_core::{Config, MerixError};
+use std::fs;
 
-/// Main database handle for Merix-V2
 pub type Db = Arc<Surreal<Any>>;
 
 /// Connect to embedded SurrealDB (RocksDB or in-memory)
@@ -16,6 +16,15 @@ pub async fn connect() -> Result<Db, MerixError> {
     } else {
         config.db_url.clone()
     };
+
+    // Ensure the data directory exists before connecting (critical for RocksDB)
+    if let Some(path) = config.db_url.strip_prefix("rocksdb://") {
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| MerixError::Db(format!("Failed to create data directory {}: {}", parent.display(), e)))?;
+            println!("✅ Created data directory: {}", parent.display());
+        }
+    }
 
     // Correct SurrealDB v3 Any engine connection
     let db: Surreal<Any> = surreal_connect(db_url.as_str())

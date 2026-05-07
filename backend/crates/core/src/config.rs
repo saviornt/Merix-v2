@@ -48,21 +48,23 @@ impl Config {
 
     /// Returns the intelligent data directory (dev vs production)
     pub fn data_dir() -> PathBuf {
-        // Developer mode detection (works during cargo test, cargo run, cargo tauri dev)
+        // Developer mode detection
         if std::env::var_os("CARGO_MANIFEST_DIR").is_some() || cfg!(debug_assertions) {
             let manifest = std::env::var("CARGO_MANIFEST_DIR")
                 .unwrap_or_else(|_| ".".to_string());
             let mut root = PathBuf::from(manifest);
 
-            // Walk up from backend/crates/core → project root
-            root.pop(); // core
-            root.pop(); // crates
-            root.pop(); // backend
-            root.pop(); // project root (Merix-v2/)
+            // Walk up from backend/crates/db (or core) to project root
+            while root.file_name() != Some(std::ffi::OsStr::new("Merix-v2")) && root.parent().is_some() {
+                root.pop();
+            }
+            if root.file_name() != Some(std::ffi::OsStr::new("Merix-v2")) {
+                root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            }
 
             root.join("test_data")
         } else {
-            // Production (packaged Tauri app) → proper OS app data directory
+            // Production (packaged Tauri app)
             dirs::data_dir()
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
                 .join("Merix")
@@ -70,11 +72,11 @@ impl Config {
         }
     }
 
-    /// Returns the default model directory (keeps existing behavior for models)
+    /// Returns the default model directory
     pub fn default_model_dir() -> PathBuf {
-            let data_dir = Self::data_dir();
-            let parent = data_dir.parent().unwrap_or(&data_dir);
-            parent.join("models")
+        let data_dir = Self::data_dir();
+        let parent = data_dir.parent().unwrap_or(&data_dir);
+        parent.join("models")
     }
 }
 
