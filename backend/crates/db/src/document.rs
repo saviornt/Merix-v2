@@ -41,7 +41,7 @@ where
 
 pub async fn update(db: &Db, id: impl AsRef<str>, updates: Value) -> Result<(), MerixError> {
     let (table, key) = split_record_id(id.as_ref())?;
-    let _: Vec<Value> = db
+    let _: Option<Value> = db
         .update((table, key))
         .merge(updates)
         .await
@@ -57,15 +57,15 @@ pub async fn find_all<T: SurrealValue>(db: &Db, collection: &str) -> Result<Vec<
 
 pub async fn find_by_id<T: SurrealValue>(db: &Db, id: impl AsRef<str>) -> Result<Option<T>, MerixError> {
     let (table, key) = split_record_id(id.as_ref())?;
-    let records: Vec<T> = db.select((table, key))
+    let record: Option<T> = db.select((table, key))
         .await
         .map_err(|e| MerixError::Db(format!("Select by id failed: {}", e)))?;
-    Ok(records.into_iter().next())
+    Ok(record)
 }
 
 pub async fn delete(db: &Db, id: impl AsRef<str>) -> Result<(), MerixError> {
     let (table, key) = split_record_id(id.as_ref())?;
-    let _: Vec<Value> = db
+    let _: Option<Value> = db
         .delete((table, key))
         .await
         .map_err(|e| MerixError::Db(format!("Delete failed: {}", e)))?;
@@ -93,7 +93,7 @@ pub async fn delete_by_filter(db: &Db, collection: &str, filter: QueryFilter) ->
     Ok(())
 }
 
-/// Helper: extract clean "table:key" string from returned record (used by caller for logging/printing)
+/// Helper: extract clean "table:key" string from returned record
 fn extract_id_string(value: &Value) -> Result<String, MerixError> {
     match value {
         Value::Object(obj) => {
@@ -117,7 +117,7 @@ fn extract_id_string(value: &Value) -> Result<String, MerixError> {
     }
 }
 
-/// Helper: split "table:key" into tuple that the v3 SDK requires for .update / .delete / .select by id
+/// Helper: split "table:key" into tuple that the v3 SDK requires
 fn split_record_id(id: &str) -> Result<(&str, &str), MerixError> {
     let parts: Vec<&str> = id.splitn(2, ':').collect();
     if parts.len() != 2 {

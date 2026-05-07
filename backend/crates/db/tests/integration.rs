@@ -1,4 +1,4 @@
-﻿use merix_db::{init, operations, vectors, apply_schemas, QueryFilter, VectorQuery, VectorSearchResult, HasEmbedding};
+﻿use merix_db::{init, document, vector_search, apply_schemas, QueryFilter, VectorQuery, VectorSearchResult, HasEmbedding};
 use serde::{Serialize, Deserialize};
 use surrealdb_types::{SurrealValue, Value, object};
 use serde_json::json;
@@ -62,7 +62,7 @@ async fn test_basic_crud(db: &merix_db::Db) {
         tags: vec!["test".to_string(), "db".to_string()],
     };
 
-    let rid: String = operations::insert(db, "test_records", record.clone())
+    let rid: String = document::insert(db, "test_records", record.clone())
         .await
         .expect("insert failed");
     println!("  ✅ insert() → ID: {}", rid);
@@ -71,31 +71,31 @@ async fn test_basic_crud(db: &merix_db::Db) {
         TestRecord { name: "Batch Item 1".to_string(), value: 100, tags: vec![] },
         TestRecord { name: "Batch Item 2".to_string(), value: 200, tags: vec![] },
     ];
-    let batch_ids: Vec<String> = operations::insert_many(db, "test_records", batch)
+    let batch_ids: Vec<String> = document::insert_many(db, "test_records", batch)
         .await
         .expect("insert_many failed");
     println!("  ✅ insert_many() → {} IDs", batch_ids.len());
 
-    let all: Vec<TestRecord> = operations::find_all(db, "test_records")
+    let all: Vec<TestRecord> = document::find_all(db, "test_records")
         .await
         .expect("find_all failed");
     println!("  ✅ find_all() → {} records", all.len());
 
     let test_rid = batch_ids[0].clone();
     let updates = Value::Object(object! { value: 999i32 });
-    operations::update(db, &test_rid, updates).await.expect("update failed");
+    document::update(db, &test_rid, updates).await.expect("update failed");
     println!("  ✅ update()");
 
-    let found: Option<TestRecord> = operations::find_by_id(db, &test_rid)
+    let found: Option<TestRecord> = document::find_by_id(db, &test_rid)
         .await
         .expect("find_by_id failed");
     assert!(found.is_some());
     println!("  ✅ find_by_id()");
 
-    operations::delete(db, &test_rid).await.expect("delete failed");
+    document::delete(db, &test_rid).await.expect("delete failed");
     println!("  ✅ delete()");
 
-    operations::delete_by_filter(db, "test_records", QueryFilter::Where(json!({"value": 200})))
+    document::delete_by_filter(db, "test_records", QueryFilter::Where(json!({"value": 200})))
         .await
         .expect("delete_by_filter failed");
     println!("  ✅ delete_by_filter()");
@@ -111,13 +111,13 @@ async fn test_vector_operations(db: &merix_db::Db) {
         TestEmbeddingRecord { title: "ML Basics".to_string(), content: "Statistical models.".to_string(), embedding: vec![0.9f32; 384] },
     ];
 
-    vectors::upsert(db, "test_embeddings", embed_docs, None)
+    vector_search::upsert(db, "test_embeddings", embed_docs, None)
         .await
         .expect("vector upsert failed");
     println!("  ✅ vectors::upsert()");
 
     let query = VectorQuery { embedding: vec![0.1f32; 384], limit: 5 };
-    let results: Vec<VectorSearchResult<TestEmbeddingRecord>> = vectors::search(
+    let results: Vec<VectorSearchResult<TestEmbeddingRecord>> = vector_search::search(
         db, "test_embeddings", query, None,
     ).await.expect("vector search failed");
 
