@@ -1,11 +1,11 @@
 ﻿use crate::Db;
-use crate::schemas::{RecordId, QueryFilter};
+use crate::schemas::QueryFilter;
 use merix_core::MerixError;
 use serde::Serialize;
 use surrealdb_types::{Value, SurrealValue};
 
 /// Production-ready insert using high-level .create() API (SurrealDB v3)
-pub async fn insert<T>(db: &Db, collection: &str, data: T) -> Result<RecordId, MerixError>
+pub async fn insert<T>(db: &Db, collection: &str, data: T) -> Result<String, MerixError>
 where
     T: Serialize + SurrealValue,
 {
@@ -17,17 +17,12 @@ where
 
     let value = created.ok_or_else(|| MerixError::Db("No record created".to_string()))?;
 
-    let id_str = extract_record_id_string(&value)?;
-    let parts: Vec<&str> = id_str.split(':').collect();
-    if parts.len() != 2 {
-        return Err(MerixError::Db("Malformed SurrealDB id".to_string()));
-    }
-
-    Ok(RecordId::new(parts[0].to_string(), parts[1].to_string()))
+    let id_str = extract_id_string(&value)?;
+    Ok(id_str)
 }
 
 /// Batch insert using high-level .insert() (optimal for heavy workloads)
-pub async fn insert_many<T>(db: &Db, collection: &str, data: Vec<T>) -> Result<Vec<RecordId>, MerixError>
+pub async fn insert_many<T>(db: &Db, collection: &str, data: Vec<T>) -> Result<Vec<String>, MerixError>
 where
     T: Serialize + SurrealValue,
 {
@@ -39,20 +34,15 @@ where
 
     let mut ids = Vec::with_capacity(created.len());
     for v in created {
-        let id_str = extract_record_id_string(&v)?;
-        let parts: Vec<&str> = id_str.split(':').collect();
-        if parts.len() == 2 {
-            ids.push(RecordId::new(parts[0].to_string(), parts[1].to_string()));
-        } else {
-            ids.push(RecordId::random(collection));
-        }
+        ids.push(extract_id_string(&v)?);
     }
     Ok(ids)
 }
 
-pub async fn update(db: &Db, id: RecordId, updates: Value) -> Result<(), MerixError> {
+pub async fn update(db: &Db, id: impl AsRef<str>, updates: Value) -> Result<(), MerixError> {
+    let (table, key) = split_record_id(id.as_ref())?;
     let _: Vec<Value> = db
-        .update(id.as_surreal())
+        .update((table, key))
         .merge(updates)
         .await
         .map_err(|e| MerixError::Db(format!("Update failed: {}", e)))?;
@@ -65,16 +55,18 @@ pub async fn find_all<T: SurrealValue>(db: &Db, collection: &str) -> Result<Vec<
         .map_err(|e| MerixError::Db(format!("Select failed: {}", e)))
 }
 
-pub async fn find_by_id<T: SurrealValue>(db: &Db, id: RecordId) -> Result<Option<T>, MerixError> {
-    let records: Vec<T> = db.select(id.as_surreal())
+pub async fn find_by_id<T: SurrealValue>(db: &Db, id: impl AsRef<str>) -> Result<Option<T>, MerixError> {
+    let (table, key) = split_record_id(id.as_ref())?;
+    let records: Vec<T> = db.select((table, key))
         .await
         .map_err(|e| MerixError::Db(format!("Select by id failed: {}", e)))?;
     Ok(records.into_iter().next())
 }
 
-pub async fn delete(db: &Db, id: RecordId) -> Result<(), MerixError> {
+pub async fn delete(db: &Db, id: impl AsRef<str>) -> Result<(), MerixError> {
+    let (table, key) = split_record_id(id.as_ref())?;
     let _: Vec<Value> = db
-        .delete(id.as_surreal())
+        .delete((table, key))
         .await
         .map_err(|e| MerixError::Db(format!("Delete failed: {}", e)))?;
     Ok(())
@@ -89,9 +81,8 @@ pub async fn delete_by_filter(db: &Db, collection: &str, filter: QueryFilter) ->
                 .map_err(|e| MerixError::Db(e.to_string()))?;
         }
         QueryFilter::Ids(ids) => {
-            let id_list: Vec<String> = ids.into_iter().map(|r| r.as_surreal()).collect();
             db.query(&format!("DELETE {} WHERE id IN $ids", collection))
-                .bind(("ids", id_list))
+                .bind(("ids", ids))
                 .await
                 .map_err(|e| MerixError::Db(e.to_string()))?;
         }
@@ -102,15 +93,18 @@ pub async fn delete_by_filter(db: &Db, collection: &str, filter: QueryFilter) ->
     Ok(())
 }
 
-/// Extract full record ID as "table:key" string from surrealdb_types::Value
-fn extract_record_id_string(value: &Value) -> Result<String, MerixError> {
+/// Helper: extract clean "table:key" string from returned record (used by caller for logging/printing)
+fn extract_id_string(value: &Value) -> Result<String, MerixError> {
     match value {
         Value::Object(obj) => {
             if let Some(id_val) = obj.get("id") {
                 match id_val {
                     Value::RecordId(rid) => {
-                        // RecordIdKey does not implement Display in v3; use Debug
-                        Ok(format!("{}:{:?}", rid.table, rid.key))
+                        let key_str = match &rid.key {
+                            surrealdb_types::RecordIdKey::String(s) => s.clone(),
+                            _ => format!("{:?}", rid.key),
+                        };
+                        Ok(format!("{}:{}", rid.table, key_str))
                     }
                     Value::String(s) => Ok(s.clone()),
                     _ => Ok(format!("{:?}", id_val)),
@@ -121,4 +115,13 @@ fn extract_record_id_string(value: &Value) -> Result<String, MerixError> {
         }
         _ => Err(MerixError::Db("Expected Object from database".to_string())),
     }
+}
+
+/// Helper: split "table:key" into tuple that the v3 SDK requires for .update / .delete / .select by id
+fn split_record_id(id: &str) -> Result<(&str, &str), MerixError> {
+    let parts: Vec<&str> = id.splitn(2, ':').collect();
+    if parts.len() != 2 {
+        return Err(MerixError::Db(format!("Invalid record ID format: {}", id)));
+    }
+    Ok((parts[0], parts[1]))
 }

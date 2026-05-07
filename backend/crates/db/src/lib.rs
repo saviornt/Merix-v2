@@ -11,15 +11,16 @@ pub use vectors::*;
 
 pub type MerixDb = Db;
 
-/// One-call initialization for the entire Merix database layer.
-/// Other crates should call this once at startup.
-/// Now includes health check + schema init for production readiness.
+/// One-call initialization for the database layer.
+/// Only handles connection + health check (production-ready, retries, tracing).
+/// Schema initialization is now the caller's responsibility via `apply_schemas`
+/// so the db crate stays completely domain-agnostic.
 pub async fn init() -> Result<MerixDb, merix_core::MerixError> {
     let db = connect().await?;
     // Production: verify connectivity under load
     db.health().await
         .map_err(|e| merix_core::MerixError::Db(format!("Health check failed: {}", e)))?;
-    init_schemas(&db).await?;
-    tracing::info!("Merix DB initialized successfully (SurrealDB v3, heavy-workload ready)");
+
+    tracing::info!("Merix DB layer initialized successfully (SurrealDB v3, heavy-workload ready — schemas handled by caller)");
     Ok(db)
 }

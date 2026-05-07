@@ -1,12 +1,12 @@
 ﻿use crate::Db;
-use crate::schemas::{VectorSearchResult, VectorQuery, RecordId};
+use crate::schemas::{VectorSearchResult, VectorQuery};
 use merix_core::MerixError;
 use serde::Serialize;
 use surrealdb_types::{Value, SurrealValue};
 use tracing;
 
-/// Upsert with high-level .upsert() for heavy workloads (create-or-update)
-pub async fn upsert<T>(db: &Db, collection: &str, items: Vec<T>, ids: Option<Vec<RecordId>>) -> Result<(), MerixError>
+/// Upsert with high-level .upsert() for heavy workloads
+pub async fn upsert<T>(db: &Db, collection: &str, items: Vec<T>, ids: Option<Vec<String>>) -> Result<(), MerixError>
 where
     T: Serialize + SurrealValue,
 {
@@ -19,11 +19,11 @@ where
         if let Some(ref id_list) = ids {
             if let Some(rid) = id_list.get(i) {
                 if let Value::Object(mut obj) = value {
-                    obj.insert("id".to_string(), Value::String(rid.as_surreal()));
+                    obj.insert("id".to_string(), Value::String(rid.clone()));
                     value = Value::Object(obj);
                 } else {
                     let mut obj = std::collections::BTreeMap::new();
-                    obj.insert("id".to_string(), Value::String(rid.as_surreal()));
+                    obj.insert("id".to_string(), Value::String(rid.clone()));
                     value = Value::Object(obj.into());
                 }
             }
@@ -42,12 +42,12 @@ where
     Ok(())
 }
 
-/// Vector search (optimized SurrealQL + cosine distance, production HNSW ready)
+/// Vector search (optimized SurrealQL + cosine distance)
 pub async fn search<T: SurrealValue>(
     db: &Db,
     collection: &str,
     query: VectorQuery,
-    filter_id: Option<RecordId>,
+    filter_id: Option<String>,
 ) -> Result<Vec<VectorSearchResult<T>>, MerixError> {
     let mut where_clause = String::from("embedding <5> $query");
 
@@ -68,8 +68,8 @@ pub async fn search<T: SurrealValue>(
         .bind(("query", query.embedding))
         .bind(("limit", query.limit as i64));
 
-    if let Some(ref fid) = filter_id {
-        q = q.bind(("filter_id", fid.as_surreal()));
+    if let Some(fid) = filter_id {
+        q = q.bind(("filter_id", fid));   // owned String — satisfies 'static requirement
     }
 
     let raw: Vec<Value> = q

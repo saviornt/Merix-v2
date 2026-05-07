@@ -1,15 +1,16 @@
-﻿use merix_db::{init, operations, vectors, VectorQuery, HasEmbedding, VectorSearchResult, QueryFilter};
+﻿use merix_db::{init, operations, vectors, apply_schemas, QueryFilter, VectorQuery, VectorSearchResult, HasEmbedding};
 use serde::{Serialize, Deserialize};
+use surrealdb_types::{SurrealValue, Value, object};
 use serde_json::json;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 struct TestRecord {
     name: String,
     value: i32,
     tags: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 struct TestEmbeddingRecord {
     title: String,
     content: String,
@@ -17,18 +18,18 @@ struct TestEmbeddingRecord {
 }
 
 impl HasEmbedding for TestEmbeddingRecord {
-    fn embedding(&self) -> &[f32] {
-        &self.embedding
+    fn embedding(&self) -> Vec<f32> {
+        self.embedding.clone()
     }
 }
 
 #[tokio::test]
 async fn test_merix_db_full_integration() {
-    println!("🧪 Starting Merix DB full integration test (with RecordId returns)...");
+    println!("🚀 Starting Merix DB full integration test (SurrealDB v3, production API)...");
 
     let db = match init().await {
         Ok(db) => {
-            println!("✅ DB initialized successfully");
+            println!("✅ DB layer initialized successfully");
             db
         }
         Err(e) => {
@@ -37,14 +38,23 @@ async fn test_merix_db_full_integration() {
         }
     };
 
+    let test_schemas = vec![
+        "DEFINE TABLE test_records SCHEMAFULL IF NOT EXISTS;",
+        "DEFINE INDEX test_records_idx ON test_records FIELDS name IF NOT EXISTS;",
+        "DEFINE TABLE test_embeddings SCHEMAFULL IF NOT EXISTS;",
+        "DEFINE INDEX vec_idx ON test_embeddings FIELDS embedding HNSW DIMENSION 1536 DIST COSINE TYPE F32 IF NOT EXISTS;",
+    ];
+    apply_schemas(&db, &test_schemas).await.expect("test schema application failed");
+    println!("✅ Test schemas applied");
+
     test_basic_crud(&db).await;
     test_vector_operations(&db).await;
 
-    println!("\n🎉 ALL MERIX DB INTEGRATION TESTS PASSED SUCCESSFULLY! 🚀");
+    println!("\n🎉 ALL MERIX DB INTEGRATION TESTS PASSED SUCCESSFULLY!");
 }
 
 async fn test_basic_crud(db: &merix_db::Db) {
-    println!("\n📋 Testing Basic CRUD...");
+    println!("\n📋 Testing Basic CRUD operations...");
 
     let record = TestRecord {
         name: "Integration Test Record".to_string(),
@@ -52,46 +62,37 @@ async fn test_basic_crud(db: &merix_db::Db) {
         tags: vec!["test".to_string(), "db".to_string()],
     };
 
-    let rid = operations::insert(db, "test_records", record.clone())
+    let rid: String = operations::insert(db, "test_records", record.clone())
         .await
         .expect("insert failed");
-    println!("  ✅ insert() → returned RecordId: {}", rid.as_surreal());
+    println!("  ✅ insert() → ID: {}", rid);
 
     let batch = vec![
         TestRecord { name: "Batch Item 1".to_string(), value: 100, tags: vec![] },
         TestRecord { name: "Batch Item 2".to_string(), value: 200, tags: vec![] },
     ];
-    let batch_ids = operations::insert_many(db, "test_records", batch)
+    let batch_ids: Vec<String> = operations::insert_many(db, "test_records", batch)
         .await
         .expect("insert_many failed");
-    println!("  ✅ insert_many() → {} RecordIds returned", batch_ids.len());
+    println!("  ✅ insert_many() → {} IDs", batch_ids.len());
 
     let all: Vec<TestRecord> = operations::find_all(db, "test_records")
         .await
         .expect("find_all failed");
-    println!("  ✅ find_all() - {} records", all.len());
+    println!("  ✅ find_all() → {} records", all.len());
 
-    // Use a record that find_all already confirmed exists
     let test_rid = batch_ids[0].clone();
-
-    operations::update(db, test_rid.clone(), json!({"value": 999}))
-        .await
-        .expect("update failed");
+    let updates = Value::Object(object! { value: 999i32 });
+    operations::update(db, &test_rid, updates).await.expect("update failed");
     println!("  ✅ update()");
 
-    // Force RocksDB visibility (test-only, no library change)
-    let _: Vec<TestRecord> = operations::find_all(db, "test_records")
-        .await
-        .expect("find_all for flush failed");
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-
-    let found: Option<TestRecord> = operations::find_by_id(db, test_rid.clone())
+    let found: Option<TestRecord> = operations::find_by_id(db, &test_rid)
         .await
         .expect("find_by_id failed");
-    assert!(found.is_some(), "find_by_id should return the record");
+    assert!(found.is_some());
     println!("  ✅ find_by_id()");
 
-    operations::delete(db, test_rid.clone()).await.expect("delete failed");
+    operations::delete(db, &test_rid).await.expect("delete failed");
     println!("  ✅ delete()");
 
     operations::delete_by_filter(db, "test_records", QueryFilter::Where(json!({"value": 200})))
@@ -99,23 +100,15 @@ async fn test_basic_crud(db: &merix_db::Db) {
         .expect("delete_by_filter failed");
     println!("  ✅ delete_by_filter()");
 
-    println!("  ✅ All basic CRUD passed");
+    println!("  ✅ All basic CRUD operations passed");
 }
 
 async fn test_vector_operations(db: &merix_db::Db) {
-    println!("\n🔬 Testing Vector operations (hybrid + RecordId)...");
+    println!("\n🔍 Testing Vector operations...");
 
     let embed_docs = vec![
-        TestEmbeddingRecord {
-            title: "Rust Systems".to_string(),
-            content: "Memory safety and performance.".to_string(),
-            embedding: vec![0.1f32; 384],
-        },
-        TestEmbeddingRecord {
-            title: "ML Basics".to_string(),
-            content: "Statistical models.".to_string(),
-            embedding: vec![0.9f32; 384],
-        },
+        TestEmbeddingRecord { title: "Rust Systems".to_string(), content: "Memory safety.".to_string(), embedding: vec![0.1f32; 384] },
+        TestEmbeddingRecord { title: "ML Basics".to_string(), content: "Statistical models.".to_string(), embedding: vec![0.9f32; 384] },
     ];
 
     vectors::upsert(db, "test_embeddings", embed_docs, None)
@@ -123,19 +116,13 @@ async fn test_vector_operations(db: &merix_db::Db) {
         .expect("vector upsert failed");
     println!("  ✅ vectors::upsert()");
 
-    let query = VectorQuery {
-        embedding: vec![0.1f32; 384],
-        limit: 10,
-        threshold: Some(0.0),
-    };
+    let query = VectorQuery { embedding: vec![0.1f32; 384], limit: 5 };
+    let results: Vec<VectorSearchResult<TestEmbeddingRecord>> = vectors::search(
+        db, "test_embeddings", query, None,
+    ).await.expect("vector search failed");
 
-    let results: Vec<VectorSearchResult<TestEmbeddingRecord>> =
-        vectors::search(db, "test_embeddings", query, None)
-            .await
-            .expect("vector search failed");
-
-    assert!(!results.is_empty(), "vector search should return results");
-    println!("  ✅ vectors::search() - {} results", results.len());
+    assert!(!results.is_empty());
+    println!("  ✅ vectors::search() → {} results", results.len());
 
     println!("  ✅ All vector operations passed");
 }
