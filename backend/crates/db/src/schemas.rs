@@ -1,5 +1,7 @@
 ﻿use serde::{Deserialize, Serialize};
 use serde_json::{Value};
+use crate::Db;
+use merix_core::MerixError;
 
 /// =======================================================================
 /// COLLECTION - Minimal metadata wrapper for a SurrealDB table/collection.
@@ -109,4 +111,43 @@ pub struct Pagination {
 pub struct Sort {
     pub field: String,
     pub descending: bool,
+}
+
+/// =======================================================================
+/// Initialize all core tables + indexes (including vector support).
+/// Called automatically by `merix_db::init()`.
+/// =======================================================================
+pub async fn init_schemas(db: &Db) -> Result<(), MerixError> {
+    // Core collections used across the app
+    let tables = vec![
+        "tasks",
+        "sessions",
+        "skills",
+        "checkpoints",
+        "agents",
+        "memory",
+        "embeddings",   // dedicated vector collection for RAG
+    ];
+
+    for table in tables {
+        let define_table = format!(
+            "DEFINE TABLE {} SCHEMALESS PERMISSIONS FULL;",
+            table
+        );
+        db.query(&define_table)
+            .await
+            .map_err(|e| MerixError::Db(e.to_string()))?;
+    }
+
+    // Vector index (SurrealDB v3+ vector support)
+    db.query(
+        r#"
+        DEFINE INDEX idx_embedding ON embeddings FIELDS embedding
+        TYPE hnsw DIMENSION 384 DIST COSINE;
+        "#
+    )
+    .await
+    .map_err(|e| MerixError::Db(e.to_string()))?;
+
+    Ok(())
 }

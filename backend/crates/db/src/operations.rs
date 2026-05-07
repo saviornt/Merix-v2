@@ -1,5 +1,5 @@
 ﻿use crate::Db;
-use crate::schemas::{RecordId, QueryFilter, QueryResult, Document};
+use crate::schemas::{RecordId, QueryFilter};
 use merix_core::MerixError;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -8,7 +8,7 @@ use serde_json::Value;
 pub async fn insert<T: Serialize>(db: &Db, collection: &str, data: T) -> Result<(), MerixError> {
     let query = format!("CREATE {} CONTENT $data", collection);
     db.query(&query)
-        .bind(("data", serde_json::to_value(data)?))
+        .bind(("data", serde_json::to_value(data).map_err(|e| MerixError::Db(e.to_string()))?))
         .await
         .map_err(|e| MerixError::Db(e.to_string()))?;
     Ok(())
@@ -17,7 +17,7 @@ pub async fn insert<T: Serialize>(db: &Db, collection: &str, data: T) -> Result<
 pub async fn insert_many<T: Serialize>(db: &Db, collection: &str, data: Vec<T>) -> Result<(), MerixError> {
     let query = format!("CREATE {} CONTENT $data", collection);
     db.query(&query)
-        .bind(("data", serde_json::to_value(data)?))
+        .bind(("data", serde_json::to_value(data).map_err(|e| MerixError::Db(e.to_string()))?))
         .await
         .map_err(|e| MerixError::Db(e.to_string()))?;
     Ok(())
@@ -73,18 +73,27 @@ pub async fn delete(db: &Db, id: RecordId) -> Result<(), MerixError> {
 }
 
 pub async fn delete_by_filter(db: &Db, collection: &str, filter: QueryFilter) -> Result<(), MerixError> {
-    let query = match filter {
-        QueryFilter::Where(v) => format!("DELETE {} WHERE $filter", collection),
-        QueryFilter::Ids(ids) => {
-            let id_list = ids.into_iter().map(|r| r.as_surreal()).collect::<Vec<_>>();
-            format!("DELETE {} WHERE id IN $ids", collection)
+    match filter {
+        QueryFilter::Where(v) => {
+            let query = format!("DELETE {} WHERE $filter", collection);
+            db.query(&query)
+                .bind(("filter", v))
+                .await
+                .map_err(|e| MerixError::Db(e.to_string()))?;
         }
-        QueryFilter::Raw(sql) => sql,
-    };
-
-    db.query(&query)
-        .bind(("filter", Value::Null)) // placeholder for simple cases
-        .await
-        .map_err(|e| MerixError::Db(e.to_string()))?;
+        QueryFilter::Ids(ids) => {
+            let id_list: Vec<String> = ids.into_iter().map(|r| r.as_surreal()).collect();
+            let query = format!("DELETE {} WHERE id IN $ids", collection);
+            db.query(&query)
+                .bind(("ids", id_list))
+                .await
+                .map_err(|e| MerixError::Db(e.to_string()))?;
+        }
+        QueryFilter::Raw(sql) => {
+            db.query(&sql)
+                .await
+                .map_err(|e| MerixError::Db(e.to_string()))?;
+        }
+    }
     Ok(())
 }
