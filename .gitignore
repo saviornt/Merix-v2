@@ -1,8 +1,7 @@
 # Merix-V2 ignore
 /target
-/models/*
-!/models/README.md
-/test_data
+models/
+test_data/
 
 # Logs
 logs

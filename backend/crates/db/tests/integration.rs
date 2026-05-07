@@ -4,7 +4,8 @@
     Db, VectorQuery, VectorSearchResult,
 };
 use serde::{Serialize, Deserialize};
-use surrealdb_types::SurrealValue;
+use surrealdb_types::{SurrealValue, Geometry};
+use geo_types::Point;
 use chrono::{DateTime, Utc};
 use tokio::time::{sleep, Duration};
 
