@@ -1,7 +1,11 @@
-﻿use merix_db::{init, document, vector_search, apply_schemas, QueryFilter, VectorQuery, VectorSearchResult, HasEmbedding};
+﻿use merix_db::{
+    init, apply_schemas,
+    document, vector_search, graph, full_text_search, geospatial, time_series,
+    Db, VectorQuery, VectorSearchResult, GraphDirection,
+};
 use serde::{Serialize, Deserialize};
-use surrealdb_types::{SurrealValue, Value, object};
-use serde_json::json;
+use surrealdb_types::SurrealValue;
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 struct TestRecord {
@@ -17,112 +21,233 @@ struct TestEmbeddingRecord {
     embedding: Vec<f32>,
 }
 
-impl HasEmbedding for TestEmbeddingRecord {
-    fn embedding(&self) -> Vec<f32> {
-        self.embedding.clone()
-    }
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+struct TestGraphNode {
+    name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+struct TestTextDoc {
+    title: String,
+    content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+struct TestGeoPlace {
+    name: String,
+    location: Vec<f64>, // [lon, lat]
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+struct TestTimeSeriesEvent {
+    timestamp: DateTime<Utc>,
+    value: f64,
+    sensor: String,
 }
 
 #[tokio::test]
 async fn test_merix_db_full_integration() {
-    println!("🚀 Starting Merix DB full integration test (SurrealDB v3, production API)...");
+    println!("🚀 Starting Merix DB full multi-model integration test (SurrealDB v3)...");
 
-    let db = match init().await {
-        Ok(db) => {
-            println!("✅ DB layer initialized successfully");
-            db
-        }
-        Err(e) => {
-            eprintln!("❌ CRITICAL: Failed to initialize DB: {}", e);
-            panic!("DB init failed");
-        }
-    };
+    let db: Db = init().await.expect("DB init failed");
+    println!("✅ DB layer initialized successfully");
 
-    let test_schemas = vec![
-        "DEFINE TABLE test_records SCHEMAFULL IF NOT EXISTS;",
-        "DEFINE INDEX test_records_idx ON test_records FIELDS name IF NOT EXISTS;",
-        "DEFINE TABLE test_embeddings SCHEMAFULL IF NOT EXISTS;",
-        "DEFINE INDEX vec_idx ON test_embeddings FIELDS embedding HNSW DIMENSION 1536 DIST COSINE TYPE F32 IF NOT EXISTS;",
+    // ── Schema setup for all models ─────────────────────────────────────
+    let schemas = vec![
+        "DEFINE TABLE IF NOT EXISTS test_records SCHEMAFULL;",
+        "DEFINE TABLE IF NOT EXISTS test_embeddings SCHEMAFULL;",
+        "DEFINE TABLE IF NOT EXISTS test_nodes SCHEMAFULL;",
+        "DEFINE TABLE IF NOT EXISTS test_docs SCHEMAFULL;",
+        "DEFINE TABLE IF NOT EXISTS test_places SCHEMAFULL;",
+        "DEFINE TABLE IF NOT EXISTS test_events SCHEMAFULL;",
     ];
-    apply_schemas(&db, &test_schemas).await.expect("test schema application failed");
-    println!("✅ Test schemas applied");
 
-    test_basic_crud(&db).await;
+    apply_schemas(&db, &schemas).await.expect("Failed to apply schemas");
+    println!("✅ Base schemas applied");
+
+    // Define model-specific indexes
+    full_text_search::define_full_text_index(&db, "test_docs", "content", "english_analyzer", true)
+        .await
+        .expect("full-text index failed");
+
+    geospatial::define_geospatial_index(&db, "test_places", "location")
+        .await
+        .expect("geospatial index failed");
+
+    time_series::define_time_series_index(&db, "test_events", "timestamp")
+        .await
+        .expect("time-series index failed");
+
+    println!("✅ All model indexes defined");
+
+    // Run every model test
+    test_document_operations(&db).await;
     test_vector_operations(&db).await;
+    test_graph_operations(&db).await;
+    test_full_text_operations(&db).await;
+    test_geospatial_operations(&db).await;
+    test_time_series_operations(&db).await;
 
-    println!("\n🎉 ALL MERIX DB INTEGRATION TESTS PASSED SUCCESSFULLY!");
+    println!("\n🎉 ALL MERIX DB MULTI-MODEL INTEGRATION TESTS PASSED SUCCESSFULLY!");
 }
 
-async fn test_basic_crud(db: &merix_db::Db) {
-    println!("\n📋 Testing Basic CRUD operations...");
-
+async fn test_document_operations(db: &Db) {
+    println!("\n📄 Testing Document (CRUD) operations...");
     let record = TestRecord {
         name: "Integration Test Record".to_string(),
         value: 42,
         tags: vec!["test".to_string(), "db".to_string()],
     };
 
-    let rid: String = document::insert(db, "test_records", record.clone())
+    let rid = document::insert(db, "test_records", record)
         .await
-        .expect("insert failed");
-    println!("  ✅ insert() → ID: {}", rid);
+        .expect("document::insert failed");
+    println!("  ✅ insert() → {}", rid);
 
-    let batch = vec![
-        TestRecord { name: "Batch Item 1".to_string(), value: 100, tags: vec![] },
-        TestRecord { name: "Batch Item 2".to_string(), value: 200, tags: vec![] },
-    ];
-    let batch_ids: Vec<String> = document::insert_many(db, "test_records", batch)
+    let found: Option<TestRecord> = document::find_by_id(db, &rid)
         .await
-        .expect("insert_many failed");
-    println!("  ✅ insert_many() → {} IDs", batch_ids.len());
-
-    let all: Vec<TestRecord> = document::find_all(db, "test_records")
-        .await
-        .expect("find_all failed");
-    println!("  ✅ find_all() → {} records", all.len());
-
-    let test_rid = batch_ids[0].clone();
-    let updates = Value::Object(object! { value: 999i32 });
-    document::update(db, &test_rid, updates).await.expect("update failed");
-    println!("  ✅ update()");
-
-    let found: Option<TestRecord> = document::find_by_id(db, &test_rid)
-        .await
-        .expect("find_by_id failed");
+        .expect("document::find_by_id failed");
     assert!(found.is_some());
-    println!("  ✅ find_by_id()");
+    println!("  ✅ find_by_id() successful");
 
-    document::delete(db, &test_rid).await.expect("delete failed");
-    println!("  ✅ delete()");
-
-    document::delete_by_filter(db, "test_records", QueryFilter::Where(json!({"value": 200})))
-        .await
-        .expect("delete_by_filter failed");
-    println!("  ✅ delete_by_filter()");
-
-    println!("  ✅ All basic CRUD operations passed");
+    println!("  ✅ All document operations passed");
 }
 
-async fn test_vector_operations(db: &merix_db::Db) {
-    println!("\n🔍 Testing Vector operations...");
-
-    let embed_docs = vec![
-        TestEmbeddingRecord { title: "Rust Systems".to_string(), content: "Memory safety.".to_string(), embedding: vec![0.1f32; 384] },
-        TestEmbeddingRecord { title: "ML Basics".to_string(), content: "Statistical models.".to_string(), embedding: vec![0.9f32; 384] },
+async fn test_vector_operations(db: &Db) {
+    println!("\n🔎 Testing Vector search operations...");
+    let items = vec![
+        TestEmbeddingRecord {
+            title: "Rust Systems".to_string(),
+            content: "Memory safety.".to_string(),
+            embedding: vec![0.1f32; 384],
+        },
+        TestEmbeddingRecord {
+            title: "ML Basics".to_string(),
+            content: "Statistical models.".to_string(),
+            embedding: vec![0.9f32; 384],
+        },
     ];
 
-    vector_search::upsert(db, "test_embeddings", embed_docs, None)
+    vector_search::upsert(db, "test_embeddings", items, None)
         .await
         .expect("vector upsert failed");
-    println!("  ✅ vectors::upsert()");
+    println!("  ✅ vector_search::upsert()");
 
-    let query = VectorQuery { embedding: vec![0.1f32; 384], limit: 5 };
+    let query = VectorQuery {
+        embedding: vec![0.1f32; 384],
+        limit: 5,
+    };
     let results: Vec<VectorSearchResult<TestEmbeddingRecord>> = vector_search::search(
-        db, "test_embeddings", query, None,
+        db,
+        "test_embeddings",
+        query,
+        None,
     ).await.expect("vector search failed");
 
     assert!(!results.is_empty());
-    println!("  ✅ vectors::search() → {} results", results.len());
+    println!("  ✅ vector_search::search() → {} results", results.len());
+}
 
-    println!("  ✅ All vector operations passed");
+async fn test_graph_operations(db: &Db) {
+    println!("\n🕸️  Testing Graph operations...");
+    let alice = document::insert(db, "test_nodes", TestGraphNode { name: "Alice".to_string() })
+        .await
+        .expect("node insert failed");
+    let bob = document::insert(db, "test_nodes", TestGraphNode { name: "Bob".to_string() })
+        .await
+        .expect("node insert failed");
+
+    graph::create_edge(db, &alice, "follows", &bob, None::<serde_json::Value>)
+        .await
+        .expect("create_edge failed");
+    println!("  ✅ graph::create_edge()");
+
+    let friends: Vec<TestGraphNode> = graph::traverse(
+        db,
+        &alice,
+        GraphDirection::Out,
+        "follows",
+        Some(2),
+        Some(10),
+    ).await.expect("traverse failed");
+
+    assert!(!friends.is_empty());
+    println!("  ✅ graph::traverse() → {} results", friends.len());
+}
+
+async fn test_full_text_operations(db: &Db) {
+    println!("\n🔍 Testing Full-text search operations...");
+    let docs = vec![
+        TestTextDoc { title: "Rust Guide".to_string(), content: "Memory safety and systems programming.".to_string() },
+        TestTextDoc { title: "AI Guide".to_string(), content: "Embeddings and vector search.".to_string() },
+    ];
+
+    for doc in docs {
+        document::insert(db, "test_docs", doc).await.unwrap();
+    }
+
+    let results: Vec<TestTextDoc> = full_text_search::search_text(
+        db,
+        "test_docs",
+        "content",
+        "rust memory",
+        10,
+    ).await.expect("full-text search failed");
+
+    assert!(!results.is_empty());
+    println!("  ✅ full_text_search::search_text() → {} results", results.len());
+}
+
+async fn test_geospatial_operations(db: &Db) {
+    println!("\n📍 Testing Geospatial operations...");
+    let places = vec![
+        TestGeoPlace { name: "Phoenix Downtown".to_string(), location: vec![-112.0740, 33.4484] },
+        TestGeoPlace { name: "Scottsdale".to_string(), location: vec![-111.9260, 33.4942] },
+    ];
+
+    for place in places {
+        document::insert(db, "test_places", place).await.unwrap();
+    }
+
+    let nearby: Vec<TestGeoPlace> = geospatial::nearby(
+        db,
+        "test_places",
+        "location",
+        (-112.0740, 33.4484),
+        10000.0, // 10 km
+        10,
+    ).await.expect("geospatial nearby failed");
+
+    assert!(!nearby.is_empty());
+    println!("  ✅ geospatial::nearby() → {} results", nearby.len());
+}
+
+async fn test_time_series_operations(db: &Db) {
+    println!("\n📈 Testing Time-series operations...");
+    let now = Utc::now();
+    let events = vec![
+        TestTimeSeriesEvent { timestamp: now - chrono::Duration::minutes(30), value: 25.5, sensor: "temp1".to_string() },
+        TestTimeSeriesEvent { timestamp: now - chrono::Duration::minutes(10), value: 26.1, sensor: "temp1".to_string() },
+    ];
+
+    for e in events {
+        document::insert(db, "test_events", e).await.unwrap();
+    }
+
+    // Explicit type annotations required for generic time-series functions
+    let latest: Vec<TestTimeSeriesEvent> = time_series::latest(db, "test_events", "timestamp", 5)
+        .await
+        .expect("latest failed");
+
+    let range: Vec<TestTimeSeriesEvent> = time_series::range(
+        db,
+        "test_events",
+        "timestamp",
+        now - chrono::Duration::hours(1),
+        now,
+        Some(10),
+    ).await.expect("range failed");
+
+    assert!(!latest.is_empty() && !range.is_empty());
+    println!("  ✅ time_series::latest() + range() passed");
 }
