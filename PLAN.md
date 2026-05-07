@@ -36,9 +36,9 @@ This checklist takes us from zero to a fully working, installable desktop applic
 
 ## Phase 5: Cache Layer (`merix-cache`) - this is a RAM abstraction layer for dashmap
 
-- [ ] Finish `crates/cache/src/lib.rs` with Dashmap-based cache
-- [ ] Add TTL/eviction helpers and atomic operations (e.g., `upsert_context`)
-- [ ] Add `global_caches()` singleton pattern for easy access from Tauri commands
+- [x] Finish `crates/cache/src/lib.rs` with Dashmap-based cache
+- [x] Add TTL/eviction helpers and atomic operations (e.g., `upsert_context`)
+- [x] Add `global_caches()` singleton pattern for easy access from Tauri commands
 
 ## Phase 6: Storage Layer (`merix-storage`) - this is a unified API for the db and cache layers
 

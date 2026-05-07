@@ -3799,9 +3799,11 @@ dependencies = [
 name = "merix-cache"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "dashmap",
  "merix-core",
- "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@
 /target
 models/
 test_data/
+databases/
 
 # Logs
 logs
