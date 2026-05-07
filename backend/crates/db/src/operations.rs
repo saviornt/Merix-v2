@@ -4,6 +4,14 @@ use merix_core::MerixError;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
+/// Helper to strip SurrealDB's automatic "id" field before deserializing
+fn strip_surreal_id(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("id");
+    }
+    value
+}
+
 /// General NoSQL-style CRUD using schema wrappers
 pub async fn insert<T: Serialize>(db: &Db, collection: &str, data: T) -> Result<(), MerixError> {
     let query = format!("CREATE {} CONTENT $data", collection);
@@ -42,7 +50,7 @@ pub async fn find_all<T: DeserializeOwned>(db: &Db, collection: &str) -> Result<
         .map_err(|e| MerixError::Db(e.to_string()))?;
 
     raw.into_iter()
-        .map(|v| serde_json::from_value(v))
+        .map(|v| serde_json::from_value(strip_surreal_id(v)))
         .collect::<Result<Vec<T>, _>>()
         .map_err(|e| MerixError::Db(e.to_string()))
 }
@@ -57,7 +65,8 @@ pub async fn find_by_id<T: DeserializeOwned>(db: &Db, id: RecordId) -> Result<Op
         .map_err(|e| MerixError::Db(e.to_string()))?;
 
     if let Some(v) = raw.pop() {
-        Ok(Some(serde_json::from_value(v).map_err(|e| MerixError::Db(e.to_string()))?))
+        Ok(Some(serde_json::from_value(strip_surreal_id(v))
+            .map_err(|e| MerixError::Db(e.to_string()))?))
     } else {
         Ok(None)
     }

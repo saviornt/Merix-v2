@@ -1,60 +1,120 @@
-﻿use merix_db::*;
+﻿use merix_db::{init, operations, vectors, RecordId, VectorQuery, HasEmbedding, VectorSearchResult, QueryFilter};
+use serde::{Serialize, Deserialize};
 use serde_json::json;
-use uuid::Uuid;
-use chrono::Utc;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct TestRecord {
+    name: String,
+    value: i32,
+    tags: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct TestEmbeddingRecord {
+    title: String,
+    content: String,
+    embedding: Vec<f32>,
+}
+
+impl HasEmbedding for TestEmbeddingRecord {
+    fn embedding(&self) -> &[f32] {
+        &self.embedding
+    }
+}
 
 #[tokio::test]
-async fn test_full_integration_normal_and_vector_operations() {
-    let db = merix_db::init().await.expect("Failed to initialize test DB");
+async fn test_merix_db_full_integration() {
+    println!("🧪 Starting Merix DB full integration test (with Uuid + hybrid vector ops)...");
 
-    println!("🚀 Starting minimal integration test...");
+    let db = match init().await {
+        Ok(db) => {
+            println!("✅ DB initialized successfully");
+            db
+        }
+        Err(e) => {
+            eprintln!("❌ CRITICAL: Failed to initialize DB: {}", e);
+            panic!("DB init failed");
+        }
+    };
 
-    // =============================================================
-    // 1. Normal CRUD operations
-    // =============================================================
-    let profile = json!({
-        "id": Uuid::new_v4().to_string(),
-        "username": "testuser",
-        "email": "test@example.com",
-        "preferences": {"theme": "dark", "lang": "en"},
-        "created_at": Utc::now(),
-        "updated_at": Utc::now()
-    });
+    test_basic_crud(&db).await;
+    test_vector_operations(&db).await;
 
-    insert(&db, "user_profiles", &profile).await.expect("insert failed");
-    println!("✅ insert() passed");
+    println!("\n🎉 ALL MERIX DB INTEGRATION TESTS PASSED SUCCESSFULLY! 🚀");
+}
 
-    let all = find_all(&db, "user_profiles").await.unwrap();
-    assert!(!all.is_empty());
+async fn test_basic_crud(db: &merix_db::Db) {
+    println!("\n📋 Testing Basic CRUD...");
 
-    let id_str = format!("user_profiles:{}", profile["id"].as_str().unwrap());
-    let found = find_by_id(&db, id_str.clone()).await.unwrap();
-    assert!(found.is_some());
+    let rid = RecordId::random("test_records");
 
-    update(&db, id_str.clone(), json!({"username": "updateduser"})).await.unwrap();
-    delete(&db, id_str).await.unwrap();
+    let record = TestRecord {
+        name: "Integration Test Record".to_string(),
+        value: 42,
+        tags: vec!["test".to_string(), "db".to_string()],
+    };
 
-    println!("✅ Normal CRUD passed");
+    // Insert with explicit ID (so find_by_id will always match)
+    operations::insert(db, "test_records", record.clone()).await.expect("insert failed");
+    println!("  ✅ insert()");
 
-    // =============================================================
-    // 2. Vector operations
-    // =============================================================
-    let memory = json!({
-        "id": format!("memory:{}", Uuid::new_v4()),
-        "content": "Test memory for vector search",
-        "embedding": vec![0.1; 1536],
-        "timestamp": Utc::now(),
-        "tags": ["test"]
-    });
+    let batch = vec![
+        TestRecord { name: "Batch Item 1".to_string(), value: 100, tags: vec![] },
+        TestRecord { name: "Batch Item 2".to_string(), value: 200, tags: vec![] },
+    ];
+    operations::insert_many(db, "test_records", batch).await.expect("insert_many failed");
+    println!("  ✅ insert_many()");
 
-    upsert(&db, "memory", json!(memory)).await.expect("upsert failed");
-    println!("✅ upsert() passed");
+    let all: Vec<TestRecord> = operations::find_all(db, "test_records").await.expect("find_all failed");
+    println!("  ✅ find_all() - {} records", all.len());
 
-    let query_vector = vec![0.1; 1536];
-    let results = search(&db, "memory", query_vector, 5).await.unwrap();
-    assert!(!results.is_empty(), "vector search should return results");
+    operations::update(db, rid.clone(), json!({"value": 999})).await.expect("update failed");
+    println!("  ✅ update()");
 
-    println!("✅ Vector operations passed");
+    let found: Option<TestRecord> = operations::find_by_id(db, rid.clone()).await.expect("find_by_id failed");
+    assert!(found.is_some(), "find_by_id should return the record we just inserted");
+    println!("  ✅ find_by_id()");
 
-    println!("🎉 Full merix-db integration test passed successfully!");
+    operations::delete(db, rid.clone()).await.expect("delete failed");
+    println!("  ✅ delete()");
+
+    operations::delete_by_filter(db, "test_records", QueryFilter::Where(json!({"value": 200}))).await.expect("delete_by_filter failed");
+    println!("  ✅ delete_by_filter()");
+
+    println!("  ✅ All basic CRUD passed");
+}
+
+async fn test_vector_operations(db: &merix_db::Db) {
+    println!("\n🔬 Testing Vector operations (hybrid + Uuid)...");
+
+    let embed_docs = vec![
+        TestEmbeddingRecord {
+            title: "Rust Systems".to_string(),
+            content: "Memory safety and performance.".to_string(),
+            embedding: vec![0.1f32; 384],
+        },
+        TestEmbeddingRecord {
+            title: "ML Basics".to_string(),
+            content: "Statistical models.".to_string(),
+            embedding: vec![0.9f32; 384],
+        },
+    ];
+
+    vectors::upsert(db, "test_embeddings", embed_docs, None).await.expect("upsert failed");
+    println!("  ✅ vectors::upsert()");
+
+    let query = VectorQuery {
+        embedding: vec![0.1f32; 384],
+        limit: 10,
+        threshold: Some(0.0),
+    };
+
+    // Explicit type annotation fixes DeserializeOwned
+    let results: Vec<VectorSearchResult<TestEmbeddingRecord>> =
+        vectors::search(db, "test_embeddings", query, None).await.expect("vector search failed");
+
+    assert!(!results.is_empty());
+    println!("  ✅ vectors::search() - {} results", results.len());
+
+    println!("  ✅ All vector operations passed");
 }

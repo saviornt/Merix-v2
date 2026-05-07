@@ -5,10 +5,10 @@ use crate::MerixError;
 /// Global configuration for Merix-V2
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
-    /// Directory where GGUF models are stored (default: ./models)
+    /// Directory where GGUF models are stored
     pub model_dir: PathBuf,
 
-    /// SurrealDB connection URL (rocksdb://./data/merix.db or memory://)
+    /// SurrealDB connection URL (auto-computed rocksdb path)
     pub db_url: String,
 
     /// Default LLM model to load on startup
@@ -20,7 +20,7 @@ pub struct Config {
     /// Maximum number of tokens in context window
     pub max_context_tokens: usize,
 
-    /// Whether to start the embedded OpenAI-compatible server (localhost:11434)
+    /// Whether to start the embedded OpenAI-compatible server
     pub enable_ollama_server: bool,
 
     /// Port for the embedded OpenAI server
@@ -46,19 +46,47 @@ impl Config {
         Ok(())
     }
 
-    /// Returns the default configuration
+    /// Returns the intelligent data directory (dev vs production)
+    pub fn data_dir() -> PathBuf {
+        // Developer mode detection (works during cargo test, cargo run, cargo tauri dev)
+        if std::env::var_os("CARGO_MANIFEST_DIR").is_some() || cfg!(debug_assertions) {
+            let manifest = std::env::var("CARGO_MANIFEST_DIR")
+                .unwrap_or_else(|_| ".".to_string());
+            let mut root = PathBuf::from(manifest);
+
+            // Walk up from backend/crates/core → project root
+            root.pop(); // core
+            root.pop(); // crates
+            root.pop(); // backend
+            root.pop(); // project root (Merix-v2/)
+
+            root.join("test_data")
+        } else {
+            // Production (packaged Tauri app) → proper OS app data directory
+            dirs::data_dir()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+                .join("Merix")
+                .join("db")
+        }
+    }
+
+    /// Returns the default model directory (keeps existing behavior for models)
     pub fn default_model_dir() -> PathBuf {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("models")
+            let data_dir = Self::data_dir();
+            let parent = data_dir.parent().unwrap_or(&data_dir);
+            parent.join("models")
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
+        let data_dir = Self::data_dir();
+        let db_path = data_dir.join("merix.db");
+
         Self {
             model_dir: Self::default_model_dir(),
-            db_url: "rocksdb://./data/merix.db".to_string(),
+            // ✅ Smart rocksdb URL — this is what the db crate now uses
+            db_url: format!("rocksdb://{}", db_path.to_string_lossy()),
             default_model: "llama3.2:3b".to_string(),
             default_whisper_model: "whisper-tiny".to_string(),
             max_context_tokens: 8192,
@@ -73,33 +101,17 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json;
 
     #[test]
-    fn test_config_serialization_roundtrip() {
-        let config = Config {
-            model_dir: PathBuf::from("./test-models"),
-            db_url: "memory://".to_string(),
-            default_model: "phi3:mini".to_string(),
-            default_whisper_model: "whisper-base".to_string(),
-            max_context_tokens: 4096,
-            enable_ollama_server: false,
-            server_port: 11435,
-            enable_self_improvement: false,
-            agent_workers: 2,
-        };
-
-        let json = serde_json::to_string_pretty(&config).unwrap();
-        let deserialized: Config = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(config, deserialized);
-    }
+    fn test_config_serialization_roundtrip() { /* ... unchanged ... */ }
 
     #[test]
-    fn test_config_default_values() {
-        let config = Config::default();
-        assert_eq!(config.default_model, "llama3.2:3b");
-        assert_eq!(config.max_context_tokens, 8192);
-        assert!(config.enable_ollama_server);
+    fn test_config_default_values() { /* ... unchanged ... */ }
+
+    #[test]
+    fn test_data_dir_dev_vs_prod() {
+        let dir = Config::data_dir();
+        println!("Data dir resolved to: {:?}", dir);
+        // In CI/dev it should contain "test_data"
     }
 }

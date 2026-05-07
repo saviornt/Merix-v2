@@ -1,5 +1,6 @@
 ﻿use serde::{Deserialize, Serialize};
 use serde_json::{Value};
+use uuid::{Uuid};
 use crate::Db;
 use merix_core::MerixError;
 
@@ -46,21 +47,34 @@ pub struct VectorSearchResult<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RecordId {
     pub table: String,
-    pub id: String,
+    pub id: Uuid,
 }
 
 impl RecordId {
-    pub fn new(table: impl Into<String>, id: impl Into<String>) -> Self {
+    pub fn new(table: impl Into<String>, id: Uuid) -> Self {
         Self {
             table: table.into(),
-            id: id.into(),
+            id,
         }
     }
 
     pub fn as_surreal(&self) -> String {
         format!("{}:{}", self.table, self.id)
     }
+
+    /// Convenience: create with table + string (auto-parses to Uuid or generates one)
+    pub fn new_with_string(table: impl Into<String>, id: impl Into<String>) -> Self {
+        let id_str = id.into();
+        let id = Uuid::parse_str(&id_str).unwrap_or_else(|_| Uuid::new_v4());
+        Self::new(table, id)
+    }
+
+    /// Create a brand-new random RecordId
+    pub fn random(table: impl Into<String>) -> Self {
+        Self::new(table, Uuid::new_v4())
+    }
 }
+
 
 /// =======================================================================
 /// QueryFilter Wrapper - 
@@ -126,7 +140,9 @@ pub async fn init_schemas(db: &Db) -> Result<(), MerixError> {
         "checkpoints",
         "agents",
         "memory",
-        "embeddings",   // dedicated vector collection for RAG
+        "embeddings",
+        "test_records",     // used by integration test
+        "test_embeddings",  // used by integration test
     ];
 
     for table in tables {
@@ -142,12 +158,14 @@ pub async fn init_schemas(db: &Db) -> Result<(), MerixError> {
     // Vector index (SurrealDB v3+ vector support)
     db.query(
         r#"
-        DEFINE INDEX idx_embedding ON embeddings FIELDS embedding
-        TYPE hnsw DIMENSION 384 DIST COSINE;
+        DEFINE INDEX idx_embedding ON embeddings 
+        FIELDS embedding 
+        HNSW DIMENSION 384 DIST COSINE;
         "#
     )
     .await
     .map_err(|e| MerixError::Db(e.to_string()))?;
 
+    println!("✅ SurrealDB schemas + HNSW vector index initialized");
     Ok(())
 }
