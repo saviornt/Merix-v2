@@ -51,7 +51,7 @@ where
 }
 
 pub async fn update(db: &Db, id: RecordId, updates: Value) -> Result<(), MerixError> {
-    let _: Option<Value> = db
+    let _: Vec<Value> = db
         .update(id.as_surreal())
         .merge(updates)
         .await
@@ -66,13 +66,14 @@ pub async fn find_all<T: SurrealValue>(db: &Db, collection: &str) -> Result<Vec<
 }
 
 pub async fn find_by_id<T: SurrealValue>(db: &Db, id: RecordId) -> Result<Option<T>, MerixError> {
-    db.select(id.as_surreal())
+    let records: Vec<T> = db.select(id.as_surreal())
         .await
-        .map_err(|e| MerixError::Db(format!("Select by id failed: {}", e)))
+        .map_err(|e| MerixError::Db(format!("Select by id failed: {}", e)))?;
+    Ok(records.into_iter().next())
 }
 
 pub async fn delete(db: &Db, id: RecordId) -> Result<(), MerixError> {
-    let _: Option<Value> = db
+    let _: Vec<Value> = db
         .delete(id.as_surreal())
         .await
         .map_err(|e| MerixError::Db(format!("Delete failed: {}", e)))?;
@@ -101,18 +102,18 @@ pub async fn delete_by_filter(db: &Db, collection: &str, filter: QueryFilter) ->
     Ok(())
 }
 
-/// Extract full record ID as "table:key" string from surrealdb_types::Value (avoids Display/ToString issues on RecordId)
+/// Extract full record ID as "table:key" string from surrealdb_types::Value
 fn extract_record_id_string(value: &Value) -> Result<String, MerixError> {
     match value {
         Value::Object(obj) => {
             if let Some(id_val) = obj.get("id") {
                 match id_val {
                     Value::RecordId(rid) => {
-                        // RecordId fields are public in v3; use table + key
-                        Ok(format!("{}:{}", rid.table, rid.key))
+                        // RecordIdKey does not implement Display in v3; use Debug
+                        Ok(format!("{}:{:?}", rid.table, rid.key))
                     }
                     Value::String(s) => Ok(s.clone()),
-                    _ => Ok(format!("{:?}", id_val)), // safe fallback
+                    _ => Ok(format!("{:?}", id_val)),
                 }
             } else {
                 Err(MerixError::Db("No 'id' field in returned record".to_string()))

@@ -1,5 +1,5 @@
 ﻿use crate::Db;
-use crate::schemas::{VectorSearchResult, VectorQuery, HasEmbedding, RecordId};
+use crate::schemas::{VectorSearchResult, VectorQuery, RecordId};
 use merix_core::MerixError;
 use serde::Serialize;
 use surrealdb_types::{Value, SurrealValue};
@@ -11,7 +11,7 @@ where
     T: Serialize + SurrealValue,
 {
     let mut bound_items = Vec::with_capacity(items.len());
-    let item_count = items.len(); // capture count before the move into the loop
+    let item_count = items.len();
 
     for (i, item) in items.into_iter().enumerate() {
         let mut value = item.into_value();
@@ -19,11 +19,11 @@ where
         if let Some(ref id_list) = ids {
             if let Some(rid) = id_list.get(i) {
                 if let Value::Object(mut obj) = value {
-                    obj.insert("id".to_string(), Value::from(rid.as_surreal()));
+                    obj.insert("id".to_string(), Value::String(rid.as_surreal()));
                     value = Value::Object(obj);
                 } else {
                     let mut obj = std::collections::BTreeMap::new();
-                    obj.insert("id".to_string(), Value::from(rid.as_surreal()));
+                    obj.insert("id".to_string(), Value::String(rid.as_surreal()));
                     value = Value::Object(obj.into());
                 }
             }
