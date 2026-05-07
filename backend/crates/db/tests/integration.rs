@@ -55,14 +55,18 @@ async fn test_basic_crud(db: &merix_db::Db) {
     };
 
     // Insert with explicit ID (so find_by_id will always match)
-    operations::insert(db, "test_records", record.clone()).await.expect("insert failed");
-    println!("  ✅ insert()");
+    operations::insert(db, "test_records", record.clone(), Some(rid.clone()))
+        .await
+        .expect("insert with ID failed");
+    println!("  ✅ insert() (with explicit RecordId)");
 
     let batch = vec![
         TestRecord { name: "Batch Item 1".to_string(), value: 100, tags: vec![] },
         TestRecord { name: "Batch Item 2".to_string(), value: 200, tags: vec![] },
     ];
-    operations::insert_many(db, "test_records", batch).await.expect("insert_many failed");
+    operations::insert_many(db, "test_records", batch, None)
+        .await
+        .expect("insert_many failed");
     println!("  ✅ insert_many()");
 
     let all: Vec<TestRecord> = operations::find_all(db, "test_records").await.expect("find_all failed");
@@ -72,7 +76,7 @@ async fn test_basic_crud(db: &merix_db::Db) {
     println!("  ✅ update()");
 
     let found: Option<TestRecord> = operations::find_by_id(db, rid.clone()).await.expect("find_by_id failed");
-    assert!(found.is_some(), "find_by_id should return the record we just inserted");
+    assert!(found.is_some(), "find_by_id should return the record");
     println!("  ✅ find_by_id()");
 
     operations::delete(db, rid.clone()).await.expect("delete failed");
