@@ -1,11 +1,10 @@
 ﻿use merix_db::{
-    init, apply_schemas,
+    MerixDbPool, apply_schemas,
     document, vector_search, graph, full_text_search, geospatial, time_series,
     Db, VectorQuery, VectorSearchResult,
 };
 use serde::{Serialize, Deserialize};
-use surrealdb_types::{SurrealValue, Geometry};
-use geo_types::Point;
+use surrealdb_types::SurrealValue;
 use chrono::{DateTime, Utc};
 use tokio::time::{sleep, Duration};
 
@@ -37,7 +36,7 @@ struct TestTextDoc {
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 struct TestGeoPlace {
     name: String,
-    location: Geometry,
+    location: surrealdb_types::Geometry,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
@@ -51,10 +50,13 @@ struct TestTimeSeriesEvent {
 async fn test_merix_db_full_integration() {
     println!("🚀 Starting Merix DB full multi-model integration test (SurrealDB v3)...");
 
-    let db: Db = init().await.expect("DB init failed");
-    println!("✅ DB layer initialized successfully");
+    let pool = MerixDbPool::init().await.expect("Pool initialization failed");
+    println!("✅ MerixDbPool initialized (standard / temporal / ephemeral)");
 
-    // ── Clean + recreate tables as SCHEMALESS (prevents schema conflicts from previous runs) ──
+    // Use standard for most operations
+    let db = pool.standard();
+
+    // ── Schema setup ─────────────────────────────────────────────────────
     let schemas = vec![
         "REMOVE TABLE IF EXISTS test_records;",
         "REMOVE TABLE IF EXISTS test_embeddings;",
@@ -70,7 +72,6 @@ async fn test_merix_db_full_integration() {
         "DEFINE TABLE test_places SCHEMALESS;",
         "DEFINE TABLE test_events SCHEMALESS;",
 
-        // Explicit fields for safety (SCHEMALESS still benefits from them)
         "DEFINE FIELD name ON test_records TYPE string;",
         "DEFINE FIELD value ON test_records TYPE int;",
         "DEFINE FIELD tags ON test_records TYPE array;",
@@ -92,31 +93,32 @@ async fn test_merix_db_full_integration() {
         "DEFINE FIELD sensor ON test_events TYPE string;",
     ];
 
-    apply_schemas(&db, &schemas).await.expect("Failed to apply schemas");
-    println!("✅ Base schemas applied (SCHEMALESS + fields defined)");
+    apply_schemas(db, &schemas).await.expect("Failed to apply schemas");
+    println!("✅ Base schemas applied");
 
-    // Define model-specific indexes
-    full_text_search::define_full_text_index(&db, "test_docs", "content", "english_analyzer", true)
+    // Define model-specific indexes on the standard connection
+    full_text_search::define_full_text_index(db, "test_docs", "content", "english_analyzer", true)
         .await
         .expect("full-text index failed");
 
-    geospatial::define_geospatial_index(&db, "test_places", "location")
+    geospatial::define_geospatial_index(db, "test_places", "location")
         .await
         .expect("geospatial index failed");
 
-    time_series::define_time_series_index(&db, "test_events", "timestamp")
+    time_series::define_time_series_index(db, "test_events", "timestamp")
         .await
         .expect("time-series index failed");
 
     println!("✅ All model indexes defined");
 
-    // Run every model test
-    test_document_operations(&db).await;
-    test_vector_operations(&db).await;
-    test_graph_operations(&db).await;
-    test_full_text_operations(&db).await;
-    test_geospatial_operations(&db).await;
-    test_time_series_operations(&db).await;
+    // Run tests using appropriate connections
+    test_document_operations(db).await;
+    test_vector_operations(db).await;
+    test_graph_operations(db).await;
+    test_full_text_operations(db).await;
+    test_geospatial_operations(db).await;
+    test_time_series_operations(pool.temporal()).await;   // temporal for time-series
+    test_ephemeral_operations(pool.ephemeral()).await;    // new ephemeral test
 
     println!("\n🎉 ALL MERIX DB MULTI-MODEL INTEGRATION TESTS PASSED SUCCESSFULLY!");
 }
@@ -269,7 +271,7 @@ async fn test_geospatial_operations(db: &Db) {
 }
 
 async fn test_time_series_operations(db: &Db) {
-    println!("\n📈 Testing Time-series operations...");
+    println!("\n📈 Testing Time-series operations (using temporal connection)...");
     let now = Utc::now();
     let events = vec![
         TestTimeSeriesEvent { timestamp: now - chrono::Duration::minutes(30), value: 25.5, sensor: "temp1".to_string() },
@@ -295,4 +297,26 @@ async fn test_time_series_operations(db: &Db) {
 
     assert!(!latest.is_empty() && !range.is_empty());
     println!("  ✅ time_series::latest() + range() passed");
+}
+
+async fn test_ephemeral_operations(db: &Db) {
+    println!("\n⚡ Testing Ephemeral (in-memory) operations...");
+
+    // Simple smoke test on pure memory connection
+    let record = TestRecord {
+        name: "Ephemeral Test".to_string(),
+        value: 999,
+        tags: vec!["memory".to_string()],
+    };
+
+    let rid = document::insert(db, "test_ephemeral", record)
+        .await
+        .expect("ephemeral insert failed");
+
+    let found: Option<TestRecord> = document::find_by_id(db, &rid)
+        .await
+        .expect("ephemeral find_by_id failed");
+
+    assert!(found.is_some());
+    println!("  ✅ ephemeral operations successful (pure in-memory)");
 }

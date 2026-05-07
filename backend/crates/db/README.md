@@ -52,6 +52,31 @@ async fn main() -> Result<(), MerixError> {
 }
 ```
 
+## Named Connections (MerixDbPool)
+
+Merix uses three named embedded connections with distinct storage characteristics:
+
+```rust
+let pool = merix_db::MerixDbPool::init().await?;
+
+// Use the appropriate connection for each workload
+let persistent = pool.standard();   // RocksDB  → durable main storage
+let temporal  = pool.temporal();    // SurrealKV → versioned / temporal AI memory
+let hot       = pool.ephemeral();   // Mem       → fast in-memory (no persistence)
+```
+
+### Directory Structure on Disk
+
+```text
+Merix/
+├── databases/
+├    ├── standard_db/      ← RocksDB (main persistent storage)
+├    └── temporal_db/      ← SurrealKV (temporal/versioned memory)
+└── models/                ← GGUF models
+```
+
+Ephemeral connection is always pure in-memory and creates no folder.
+
 ## Initialization
 
 ```rust
