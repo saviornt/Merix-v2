@@ -40,8 +40,12 @@ geo-types = { version = "0.7" }
 dashmap = "6"
 oxillama = "0.1"
 oxiwhisper = "0.1"
+candle-core = { version = "0.10" }
+candle-nn = { version = "0.10" }
+candle-transformers = { version = "0.10" }
+hf-hub = { version = "0.5", features = ["tokio"]}
 rig = "0.36"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"

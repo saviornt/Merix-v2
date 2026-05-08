@@ -6,7 +6,7 @@
 //!
 //! Run with `--nocapture` to see the actual embedding vector printed to the console.
 
-use merix_inference::{Embedder, TextEmbedder};
+use merix_inference::{Embedder, TextEmbedder, CandleEmbedder};
 
 #[test]
 fn integration_text_embedder_smoke_test() {
@@ -43,5 +43,29 @@ fn integration_text_embedder_smoke_test() {
         768,
         "integration test: wrong embedding dimension"
     );
+    assert!(!embedding.is_empty());
+}
+
+#[test]
+fn integration_candle_embedder_smoke_test() {
+    const TEST_MODEL_ID: &str = "sentence-transformers/all-MiniLM-L6-v2";
+
+    let embedder = CandleEmbedder::new(TEST_MODEL_ID)
+        .expect("failed to load CandleEmbedder in integration test");
+
+    let embedding = embedder
+        .embed("Testing Merix-v2 embedding integration - this should produce a real vector")
+        .expect("embed() failed in integration test");
+
+    // === VISUAL OUTPUT ===
+    println!("\n=== EMBEDDING DEMO OUTPUT ===");
+    println!("Sample text : \"Testing Merix-v2 embedding integration - this should produce a real vector\"");
+    println!("Embedding length (dimension): {}", embedding.len());
+    println!("First 10 values: {:?}", &embedding[0..10]);
+    let norm: f32 = embedding.iter().map(|&x| x * x).sum::<f32>().sqrt();
+    println!("L2 norm (should be ≈ 1.0): {:.6}", norm);
+    println!("=============================\n");
+
+    assert_eq!(embedding.len(), 384);
     assert!(!embedding.is_empty());
 }

@@ -39,11 +39,12 @@ Merix/
 ├── interop/                # Normalizes external interfaces and prevents pollution of core logic when using Apps
 ├── interface/              # Allows for voice, real-time streams, multimodal input interactions with the agent(s)
 ├── knowledge/              # Structured knowledge reasoning using knowledge graphs, entity linking and semantic relationships.
-├── llama/                  # Provides the API, management and optimizations for the llama backend.
+├── llama/                  # Provides the API, management and optimizations for the llama/oxillama backend.
 ├── memory/                 # Persistent (SurrealDB) + Ethereal (Dashmap) — (separated into 2 implementations)
 ├── observability/          # Provides traces, spans, decision logs, replay systems
 ├── orchestrator/           # Handles agent-to-agent protocols (A2A), role assignment, concensus / arbitration (see note)
 ├── persona/                # Handles "what the agent becomes" - personality/behavior profiles, long-term preferences, communication style, role specialization.
+├── personalization/        # Allows LLM personalization based on user profile (auto + manual).
 ├── planner/                # Prompts LLM for planning, validates plan and provides cost/complexity estimation. See note.
 ├── rag/                    # File embedding provider (choose "data location" and it will create embeddings & add them to the DB) for ingestion.
 ├── recovery/               # Structured error handling, retry strategies, fallback planning to prevent hallucinations, tool errors, timeouts.

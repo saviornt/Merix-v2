@@ -8,5 +8,7 @@ pub mod llm;
 pub mod stt;
 pub mod server;
 pub mod text_embed;
+pub mod candle_embed;
 
 pub use text_embed::{ Embedder, TextEmbedder };
+pub use candle_embed::{ CandleEmbedder };
