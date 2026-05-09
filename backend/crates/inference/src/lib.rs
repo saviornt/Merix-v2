@@ -1,14 +1,20 @@
 // backend/crates/inference/src/lib.rs
 //! Core inference primitives for Merix-v2.
-//!
-//! This crate provides LLM, STT, and embedding capabilities using a consistent
-//! llama.cpp-based stack via the `oxillama`.
 
 pub mod llm;
 pub mod stt;
 pub mod server;
-pub mod text_embed;
-pub mod candle_embed;
 
-pub use text_embed::{ Embedder, TextEmbedder };
-pub use candle_embed::{ CandleEmbedder };
+// Model acquisition / package manager
+pub mod hf_downloader;
+
+// Specialized pools (Phase 5+ architecture)
+pub mod pool_embedders;
+
+// Embedders live under their own submodule
+pub mod embedders;
+
+// Re-exports for convenience
+pub use hf_downloader::HfDownloader;
+pub use embedders::{ CandleEmbedder, LlamaEmbedder };
+pub use pool_embedders::{generate_embedding, Embedder};

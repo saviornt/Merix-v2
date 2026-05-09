@@ -14,6 +14,9 @@ pub struct Config {
     /// Default Whisper model for speech-to-text
     pub default_whisper_model: String,
 
+    /// Default Text-Embedding model for vectorization
+    pub default_embedding_model: String,
+
     /// Maximum number of tokens in context window
     pub max_context_tokens: usize,
 
@@ -91,6 +94,7 @@ impl Default for Config {
             model_dir: Self::model_dir(),
             default_model: "llama3.2:3b".to_string(),
             default_whisper_model: "whisper-tiny".to_string(),
+            default_embedding_model: "".to_string(),
             max_context_tokens: 8192,
             enable_ollama_server: true,
             server_port: 11434,
