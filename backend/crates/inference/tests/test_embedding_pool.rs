@@ -1,13 +1,9 @@
 // backend/crates/inference/tests/test_embedding_pool.rs
 //! Integration tests for the high-level embedding pool API (Merix-v2 inference crate).
 //!
-//! Demonstrates the public API other crates will use:
-//! ```rust
-//! inference::initialize_default_embedder("model-name").await?;
-//! let vector = inference::generate_embedding(text, model_name).await?;
-//! ```
+//! Demonstrates the public API other crates will use.
 
-use merix_inference::{generate_embedding, CandleEmbedder, pool_embedders::EmbedderPool};
+use merix_inference::generate_embedding;
 
 #[tokio::test]
 async fn integration_embedding_pool_smoke_test() {
@@ -17,12 +13,6 @@ async fn integration_embedding_pool_smoke_test() {
     println!("\n=== EMBEDDING POOL HIGH-LEVEL API TEST ===");
     println!("Model : {}", TEST_MODEL_NAME);
     println!("Text  : {}", TEST_TEXT);
-
-    // One-time initialization (this is the KISS pattern we want)
-    // In production this would be called once at app startup
-    CandleEmbedder::register_default(TEST_MODEL_NAME)
-        .await
-        .expect("failed to register default embedder");
 
     let vector = generate_embedding(TEST_TEXT, TEST_MODEL_NAME)
         .await

@@ -34,8 +34,8 @@ This checklist takes us from zero to a fully working, installable desktop applic
 
 - [x] Implement `crates/inference/src/text_embed/mod.rs`, `text_embedder.rs` & `traits.rs` - GGUF-based text embedder for vectorization.
 - [x] Implement `crates/inference/src/candle_embed/mod.rs`, `candle_embedder.rs` & `traits.rs` - Candle-based embedding for vectorization.
-- [ ] Create a text embedding pool for candle/gguf-based text embedders (default = candle).
-- [ ] Update CandleEmbedder / TextEmbedder to implement the async trait and register themselves.
+- [x] Create a text embedding pool for candle/gguf-based text embedders (default = candle).
+- [x] Update CandleEmbedder / TextEmbedder to implement the async trait and register themselves.
 - [ ] Incorporate text embedding for vectorization with the `db` crate.
 
 ## Phase 5: Cache Layer (`merix-cache`) - this is a RAM abstraction layer for dashmap

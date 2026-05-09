@@ -7,11 +7,10 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use async_trait::async_trait;
 use merix_core::MerixError;
 use oxillama::runtime::{EngineConfig, InferenceEngine, PoolingMode};
 
-use crate::embedders::llama_embed::traits::LlamaEmbedderTraits;
+use crate::Embedder;
 
 /// Llama.cpp (GGUF) embedder for Merix-v2.
 pub struct LlamaEmbedder {
@@ -40,8 +39,8 @@ impl LlamaEmbedder {
     }
 }
 
-#[async_trait]
-impl LlamaEmbedderTraits for LlamaEmbedder {
+#[async_trait::async_trait]
+impl Embedder for LlamaEmbedder {
     async fn embed(&self, text: &str) -> Result<Vec<f32>, MerixError> {
         let mut guard = self.engine.lock().map_err(|poisoned| {
             MerixError::Inference(format!("embedder mutex poisoned: {poisoned}"))

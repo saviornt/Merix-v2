@@ -1,5 +1,7 @@
 // backend/crates/inference/src/embedders/candle_embed/candle_embedder.rs
 //! Candle-backed text embedder using locally stored BERT-style models (Merix-v2).
+//!
+//! 100% local-only. No downloads, no network, no pool awareness whatsoever.
 
 use candle_core::Tensor;
 use candle_nn::VarBuilder;
@@ -7,7 +9,7 @@ use candle_transformers::models::bert::{BertModel, Config as BertConfig, DTYPE};
 use merix_core::{Config, MerixError};
 use tokenizers::Tokenizer;
 
-use crate::embedders::candle_embed::traits::CandleEmbedderTraits;
+use crate::Embedder;   // ← the main async trait from the pool
 
 /// Production Candle embedder (local models only).
 pub struct CandleEmbedder {
@@ -17,7 +19,6 @@ pub struct CandleEmbedder {
 }
 
 impl CandleEmbedder {
-    /// Create a new embedder from a local model name.
     pub fn new(model_name: impl AsRef<str>) -> Result<Self, MerixError> {
         let model_name = model_name.as_ref();
 
@@ -68,7 +69,7 @@ impl CandleEmbedder {
 }
 
 #[async_trait::async_trait]
-impl CandleEmbedderTraits for CandleEmbedder {
+impl Embedder for CandleEmbedder {
     async fn embed(&self, text: &str) -> Result<Vec<f32>, MerixError> {
         let encoding = self.tokenizer.encode(text, true)
             .map_err(|e| MerixError::Inference(format!("tokenization failed: {e}")))?;
@@ -108,38 +109,5 @@ impl CandleEmbedderTraits for CandleEmbedder {
         };
 
         Ok(normalized)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const TEST_MODEL_NAME: &str = "sentence-transformers/all-MiniLM-L6-v2";
-
-    #[tokio::test]
-    async fn test_candle_embedder_new_and_embed() {
-        // Skip gracefully if the test model is not present (CI / fresh clone friendly)
-        let model_dir = merix_core::Config::model_dir().join(TEST_MODEL_NAME);
-        if !model_dir.exists() {
-            eprintln!("Skipping CandleEmbedder test: test model not found at {}", model_dir.display());
-            return;
-        }
-
-        let embedder = CandleEmbedder::new(TEST_MODEL_NAME)
-            .expect("failed to create CandleEmbedder with test model");
-
-        let embedding = embedder
-            .embed("Merix-v2 is an agentic operating system for AI.")
-            .await
-            .expect("embed call failed");
-
-        // all-MiniLM-L6-v2 produces 384-dimensional embeddings
-        assert_eq!(embedding.len(), 384, "embedding dimension mismatch");
-        assert!(!embedding.is_empty(), "embedding vector is empty");
-
-        // Quick sanity check: vector should be normalized (L2 norm ≈ 1.0)
-        let norm: f32 = embedding.iter().map(|&x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 0.01, "embedding not properly normalized");
     }
 }

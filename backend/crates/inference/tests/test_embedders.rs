@@ -1,12 +1,13 @@
 // backend/crates/inference/tests/test_embedders.rs
 //! Integration tests for the concrete embedder implementations (Merix-v2 inference crate).
 //!
-//! Tests both Candle and Llama (GGUF) embedders.
 //! Run with `--nocapture` to see the embedding vectors.
 
 use std::sync::Arc;
 
-use merix_inference::{CandleEmbedder, embedders::llama_embed::LlamaEmbedder, pool_embedders::Embedder};
+use merix_inference::Embedder;   // the main async trait from the pool
+
+use merix_inference::{CandleEmbedder, embedders::llama_embed::LlamaEmbedder};
 
 #[tokio::test]
 async fn integration_candle_embedder_smoke_test() {
@@ -38,13 +39,10 @@ async fn integration_candle_embedder_smoke_test() {
     assert!(!vector.is_empty());
 }
 
-/// LlamaEmbedder (GGUF) test is currently ignored because oxillama does not yet
-/// support bert/nomic-bert architectures reliably.
-/// Re-enable by removing `#[ignore]` once GGUF embedding support is stable.
 #[ignore]
 #[tokio::test]
 async fn integration_llama_embedder_smoke_test() {
-    const TEST_MODEL_NAME: &str = "nomic-embed-text-v1.5.gguf"; // or whatever your GGUF filename is
+    const TEST_MODEL_NAME: &str = "nomic-embed-text-v1.5.gguf";
     const TEST_TEXT: &str = "Testing Merix-v2 Llama (GGUF) embedder directly";
 
     println!("\n=== LLAMA EMBEDDER (GGUF) DIRECT TEST ===");
