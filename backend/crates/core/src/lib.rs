@@ -41,3 +41,9 @@ mod tests {
         println!("✅ All core types serialize correctly");
     }
 }
+
+
+pub mod monetization;
+
+pub use monetization::{AdConfig, AdImpression, AdRevenueTracker, AdSelector, PersonalizedAd, RevenueModel, UserInterestProfiler};
+

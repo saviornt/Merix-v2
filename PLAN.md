@@ -114,7 +114,43 @@ The memory layer is where the actual "LLM Memory" lives, it is a policy + retrie
 - [ ] Theme support (dark/light) + splash screen
 - [ ] Performance tuning (token streaming, vector search latency)
 
-## Phase 14: Packaging & Distribution
+## Phase 14: Ad-Supported Revenue Implementation (Semantic Personalization)
+
+**Goal**: Add privacy-first, locally-computed ad-supported revenue using built-in semantic search.
+No full implementation until core phases 1-14 are complete and tested.
+
+### Key Deliverables
+
+- [ ] Extend `merix-core::monetization` with:
+  - [ ] `UserInterestProfiler` (averages embeddings from `merix-memory` chats/profile data).
+  - [ ] `AdSelector` + cosine similarity for category matching.
+  - [ ] `AdRevenueTracker` (impressions, CPM/CPC calc, interval throttling).
+- [ ] Tauri commands/events for `get_personalized_ad` and `record_ad_impression`.
+- [ ] Frontend ad slots (sidebar/banner) that call the above.
+- [ ] Persist impressions via `merix-db` / `merix-storage`.
+
+### Acceptance Criteria
+
+- [ ] Semantic interest vector computed correctly from memory entries.
+- [ ] Ads are selected based on user chats/profile (no external tracking).
+- [ ] Revenue tracking works end-to-end (in-memory first).
+- [ ] Runs cleanly in `cargo tauri dev` with no new dependencies.
+- [ ] All code follows Rust 2024 / 1.95, idiomatic style, best-practice comments.
+
+### Dependencies
+
+- Complete Phases 1-14 first.
+- `merix-memory` embeddings and `merix-storage` must be stable.
+
+### Next Actions (after scaffolding)
+
+1. [ ] Run `cargo check` locally.
+2. [ ] Implement TODOs incrementally (start with profiler + selector).
+3. [ ] Add Tauri state/commands in backend/tauri.
+4. [ ] Test with sample memory entries.
+5. [ ] Expand ad categories + real provider integration.
+
+## Phase 15: Packaging & Distribution
 
 - [ ] Run `cargo tauri build` for Windows, macOS, Linux
 - [ ] Create platform-specific installers (`.msi`, `.dmg`, `.deb`)
